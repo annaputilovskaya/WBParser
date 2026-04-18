@@ -1,0 +1,31 @@
+# Базовый Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.python-version
+
+# Окружение и зависимости
+.venv/
+venv/
+ENV/
+dist/
+build/
+poetry.toml
+
+# IDE
+.idea/
+
+# Логи и временные файлы
+*.log
+.cache
+.pytest_cache/
+.mypy_cache/
+
+# Промежуточные результаты работы парсера (данные)
+*.csv
+*.json
+
+# Конфиденциальные данные
+.env
+local_settings.py
