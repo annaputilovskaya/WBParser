@@ -1,10 +1,6 @@
 """Конфигурационные параметры парсера."""
-
-import os
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from typing import Final, Literal
+from pathlib import Path
+from typing import Final, Literal
 
 
 class Settings:
@@ -69,16 +65,21 @@ class Settings:
     DEFAULT_SEARCH_QUERY: Final[str] = "пальто из натуральной шерсти"
 
     @classmethod
-    def ensure_output_dir(cls) -> str:
-        """Создаёт директорию output, если её нет, и возвращает путь."""
-        os.makedirs(cls.OUTPUT_DIR, exist_ok=True)
-        return cls.OUTPUT_DIR
+    def _ensure_dir(cls, dir_name: str) -> Path:
+        """Вспомогательный метод для создания директории."""
+        path = Path(dir_name)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
 
     @classmethod
-    def ensure_logs_dir(cls) -> str:
-        """Создаёт директорию logs, если её нет, и возвращает путь."""
-        os.makedirs(cls.LOGS_DIR, exist_ok=True)
-        return cls.LOGS_DIR
+    def ensure_output_dir(cls) -> Path:
+        """Создаёт директорию для вывода, если её нет, и возвращает Path."""
+        return cls._ensure_dir(cls.OUTPUT_DIR)
+
+    @classmethod
+    def ensure_logs_dir(cls) -> Path:
+        """Создаёт директорию для логов, если её нет, и возвращает Path."""
+        return cls._ensure_dir(cls.LOGS_DIR)
 
 
 settings = Settings()
