@@ -51,6 +51,7 @@ class Settings:
     OUTPUT_DIR: Final[str] = "output"
     FULL_CATALOG_FILENAME: Final[str] = "full_catalog.xlsx"
     FILTERED_CATALOG_FILENAME: Final[str] = "filtered_catalog.xlsx"
+    BASIC_CATALOG_FILENAME: Final[str] = "basic_catalog.xlsx"
 
     # Логирование
     LOG_LEVEL: Final[Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]] = "INFO"
