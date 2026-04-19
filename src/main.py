@@ -20,7 +20,7 @@ def main():
         level=settings.LOG_LEVEL,
         format=settings.LOG_FORMAT,
         handlers=[
-            logging.FileHandler(settings.LOGS_DIR / "app.log", encoding="utf-8")
+            logging.FileHandler(settings.ensure_logs_dir()  / "app.log", encoding="utf-8")
         ]
     )
     logger = logging.getLogger(__name__)
