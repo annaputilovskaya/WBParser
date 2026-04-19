@@ -38,11 +38,37 @@ class ExcelExporter:
             output_dir(str): Директория для сохранения файлов.
         """
         self.output_dir = Path(output_dir)
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def _export_to_file(self, products: list[Product], filename: str, log_label: str) -> Path | None:
+        """Вспомогательный метод для сохранения данных в Excel с обработкой исключений.
+
+        Args:
+            products(list[Product]): Список объектов Product для экспорта.
+            filename(str): Имя итогового файла.
+            log_label(str): Название типа каталога для логирования.
+
+        Returns:
+            Path | None: Путь к сохраненному файлу или None, если произошла ошибка.
+        """
+        filepath = self.output_dir / filename
+        try:
+            rows = [p.to_dict() for p in products]
+            self._save_to_excel(rows, filepath)
+            logger.info("%s сохранён в %s (%d товаров).", log_label, filepath, len(rows))
+            return filepath
+        except PermissionError:
+            logger.error(
+                "Не удалось сохранить %s: файл %s открыт в другой программе.",
+                log_label, filename
+            )
+        except Exception as e:
+            logger.exception("Критическая ошибка при сохранении %s: %s", log_label, e)
+
+        return None
 
     def export_full_catalog(
             self, products: list[Product], filename: str = settings.FULL_CATALOG_FILENAME
-    ) -> Path:
+    ) -> Path | None:
         """Экспортирует полный каталог товаров в Excel.
 
         Args:
@@ -50,31 +76,23 @@ class ExcelExporter:
             filename(str): Имя файла для сохранения (по умолчанию из настроек).
 
         Returns:
-            Path: Путь к сохраненному файлу.
+            Path | None: Путь к сохраненному файлу или None при ошибке.
         """
-        filepath = self.output_dir / filename
-        rows = [p.to_dict() for p in products]
-        self._save_to_excel(rows, filepath)
-        logger.info("Полный каталог сохранён в %s (%d товаров).", filepath, len(rows))
-        return filepath
+        return self._export_to_file(products, filename, "Полный каталог")
 
     def export_basic_catalog(
             self, products: list[Product], filename: str = settings.BASIC_CATALOG_FILENAME
-    ) -> Path:
-        """Экспортирует базовый каталог товаров (только данные из поискового API).
+    ) -> Path | None:
+        """Экспортирует базовый каталог товаров (данные из поискового API).
 
         Args:
-            products(list[Product]): Последовательность объектов Product для экспорта.
+            products(list[Product]): Список объектов Product для экспорта.
             filename(str): Имя файла для сохранения (по умолчанию из настроек).
 
         Returns:
-            Path: Путь к сохраненному файлу.
+            Path | None: Путь к сохраненному файлу или None при ошибке.
         """
-        filepath = self.output_dir / filename
-        rows = [p.to_dict() for p in products]
-        self._save_to_excel(rows, filepath)
-        logger.info("Базовый каталог сохранён в %s (%d товаров).", filepath, len(rows))
-        return filepath
+        return self._export_to_file(products, filename, "Базовый каталог")
 
     def export_filtered_catalog(
             self,
@@ -83,28 +101,33 @@ class ExcelExporter:
             min_rating: float = settings.MIN_RATING,
             max_price: float = settings.MAX_PRICE,
             target_country: str = settings.TARGET_COUNTRY,
-    ) -> Path:
+    ) -> Path | None:
         """Экспортирует отфильтрованный каталог товаров по заданным критериям.
 
         Args:
             products(list[Product]): Список объектов Product для фильтрации.
             filename(str): Имя файла для сохранения (по умолчанию из настроек).
-            min_rating(float): Минимальный рейтинг (по умолчанию из настроек).
-            max_price(float): Максимальная цена (по умолчанию из настроек).
-            target_country(str): Целевая страна производства (по умолчанию "Россия").
+            min_rating(float): Минимальный рейтинг.
+            max_price(float): Максимальная цена.
+            target_country(str): Целевая страна производства.
 
         Returns:
-            Path: Путь к сохранённому файлу.
+            Path | None: Путь к сохранённому файлу или None при ошибке.
         """
         filtered = self._filter_products(products, min_rating, max_price, target_country)
-        filepath = self.output_dir / filename
-        rows = [p.to_dict() for p in filtered]
-        self._save_to_excel(rows, filepath)
-        logger.info("Отфильтрованный каталог сохранён в %s (%d товаров).", filepath, len(rows))
-        return filepath
+        return self._export_to_file(filtered, filename, "Отфильтрованный каталог")
 
     def _save_to_excel(self, rows: list[dict], filepath: Path) -> None:
-        """Сохраняет список словарей в Excel с форматированием."""
+        """Сохраняет список словарей в файл Excel с базовым форматированием.
+
+        Args:
+            rows(list[dict]): Список данных для записи, где каждый словарь — это строка.
+            filepath(Path): Полный путь к файлу для сохранения (включая имя файла).
+
+        Raises:
+            PermissionError: Если файл открыт в другой программе.
+            Exception: При ошибках записи через openpyxl.
+        """
         wb = Workbook()
         ws = wb.active
         ws.title = "Товары"
