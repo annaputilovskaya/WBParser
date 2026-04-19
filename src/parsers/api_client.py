@@ -12,9 +12,24 @@ logger = logging.getLogger(__name__)
 
 
 class WbApiClient:
-    """Клиент для работы с API Wildberries."""
+    """
+    Клиент для взаимодействия с внутренним API Wildberries.
+
+    Обеспечивает выполнение авторизованных запросов к API, управление сессией
+    и автоматическое обновление токенов доступа.
+
+    Attributes:
+        token_manager (TokenManager): Менеджер для получения и обновления авторизационных токенов.
+        session (requests.Session): Сессия с предустановленными заголовками для выполнения HTTP-запросов.
+    """
 
     def __init__(self):
+        """
+        Инициализирует клиент, настраивает менеджер токенов и HTTP-сессию.
+
+        Устанавливает базовые заголовки (User-Agent, Accept и др.) из настроек
+        приложения для имитации запросов реального пользователя.
+        """
         self.token_manager = TokenManager()
         self.session = requests.Session()
         self.session.headers.update(settings.API_HEADERS)
@@ -82,12 +97,18 @@ class WbApiClient:
 
         return None
 
-    def search_products(self, query: str = None, page: int = 1) -> dict | None:
-        """Выполняет запрос к поисковому API.
+    def search_products(
+            self, query: str = None,
+            page: int = 1, price_min: int = None,
+            price_max: int = None
+    ) -> dict | None:
+        """Выполняет запрос к поисковому API с поддержкой фильтрации по цене.
 
         Args:
-            query: Поисковый запрос (по умолчанию из настроек).
-            page: Номер страницы (пагинация).
+            query: Поисковый запрос.
+            page: Номер страницы.
+            price_min: Минимальная цена в рублях.
+            price_max: Максимальная цена в рублях.
 
         Returns:
             Словарь с ответом API или None в случае ошибки.
@@ -111,12 +132,19 @@ class WbApiClient:
             'page': page,
         }
 
-        logger.info("Запрос поискового API: query='%s', page=%d", query, page)
+        if price_min is not None and price_max is not None:
+            params['priceU'] = f"{price_min * 100};{price_max * 100}"
+
+        logger.info(
+            "Запрос поискового API: query='%s', page=%d, price=%s-%s",
+            query, page, price_min, price_max
+        )
+
         result = self._make_request(settings.API_SEARCH_URL, params)
 
         if result:
-            logger.info("Получено %d товаров на странице %d",
-                        len(result.get('products', [])), page)
+            products = result.get('products') or result.get('data', {}).get('products', [])
+            logger.info("Получено %d товаров на странице %d", len(products), page)
         else:
             logger.warning("Не удалось получить данные для страницы %d", page)
 
