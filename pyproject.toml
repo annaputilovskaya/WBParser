@@ -8,7 +8,8 @@ authors = [
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "seleniumbase (>=4.48.2,<5.0.0)"
+    "seleniumbase (>=4.48.2,<5.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)"
 ]
 
 
