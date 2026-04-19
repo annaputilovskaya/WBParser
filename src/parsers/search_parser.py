@@ -12,8 +12,8 @@ logger = logging.getLogger(__name__)
 class SearchParser:
     """Парсер поисковой выдачи Wildberries через API."""
 
-    def __init__(self):
-        self.client = WbApiClient()
+    def __init__(self, client: WbApiClient):
+        self.client = client
 
     def parse(self, query: str = None, max_pages: int = 1) -> list[Product]:
         """Парсит страницы поиска и возвращает список объектов Product."""

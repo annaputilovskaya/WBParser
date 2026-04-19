@@ -122,4 +122,4 @@ class WbApiClient:
 
         return result
 
-_api_client_instance = WbApiClient()
+wb_api_client = WbApiClient()
