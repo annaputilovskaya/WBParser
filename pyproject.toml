@@ -1,13 +1,15 @@
 [project]
 name = "wbparser"
 version = "0.1.0"
-description = ""
+description = "Парсер данных с Wildberries"
 authors = [
     {name = "Anna_Putilovskaya",email = "putilovakayaa@mail.ru"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "seleniumbase (>=4.48.2,<5.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)"
 ]
 
 
