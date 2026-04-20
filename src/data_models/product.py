@@ -16,13 +16,14 @@ class Product:
         description (str): Описание товара.
         image_urls (str): Ссылки на изображения через запятую.
         characteristics (dict[str, str]): Все характеристики с сохранением их структуры.
-        seller_name (str): Название селлера.
-        seller_url (str): Ссылка на селлера.
+        seller_name (str): Название продавцы.
+        seller_url (str): Ссылка на продавца.
         sizes (str): Размеры товара через запятую.
         stock (int): Остатки по товару (число).
         rating (float): Рейтинг от 0 до 5.
         review_count (int): Количество отзывов.
         country_of_origin (str): Страна производства.
+        image_count (int): Количество изображений.
     """
     url: str
     article: int
@@ -38,10 +39,11 @@ class Product:
     rating: float = 0.0
     review_count: int = 0
     country_of_origin: str = ""
+    image_count: int = 0
 
     def to_dict(self) -> dict[str, str | int | float]:
         """
-        Преобразует объект в словарь для экспорта в DataFrame.
+        Преобразует объект в словарь для экспорта.
 
         Returns:
             Словарь с полями, где значения приведены к строкам для удобства записи в Excel.
@@ -153,6 +155,7 @@ class Product:
         stock = product_data.get("totalQuantity", 0)
 
         url = f"https://www.wildberries.ru/catalog/{product_id}/detail.aspx"
+        image_count = product_data.get("pics", 0)
 
         return cls(
             url=url,
@@ -169,4 +172,5 @@ class Product:
             rating=float(rating),
             review_count=feedbacks,
             country_of_origin="",
+            image_count=image_count
         )
