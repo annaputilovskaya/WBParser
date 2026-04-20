@@ -5,13 +5,55 @@ import time
 
 import requests
 
+from abc import ABC, abstractmethod
+
 from src.config.settings import settings
 from src.utils.token_manager import TokenManager
+from src.utils.url_service import UrlService
 
 logger = logging.getLogger(__name__)
 
 
-class WbApiClient:
+class IApiClient(ABC):
+    """Интерфейс клиента для работы с API Wildberries."""
+
+    @abstractmethod
+    def search_products(
+        self,
+        query: str,
+        page: int = 1,
+        price_min: int | None = None,
+        price_max: int | None = None
+    ) -> dict | None:
+        """
+        Выполняет запрос к поисковому API с поддержкой фильтрации по цене.
+
+        Args:
+            query: Поисковый запрос.
+            page: Номер страницы.
+            price_min: Минимальная цена в рублях.
+            price_max: Максимальная цена в рублях.
+
+        Returns:
+            Словарь с ответом API или None в случае ошибки.
+        """
+        pass
+
+    @abstractmethod
+    def get_product_details(self, nm: int) -> dict | None:
+        """
+        Запрашивает детальную информацию о товаре через API identical-products.
+
+        Args:
+            nm (int): Артикул товара.
+
+        Returns:
+            Словарь с детальной информацией или None в случае ошибки.
+        """
+        pass
+
+
+class WbApiClient(IApiClient):
     """
     Клиент для взаимодействия с внутренним API Wildberries.
 
@@ -149,5 +191,26 @@ class WbApiClient:
             logger.warning("Не удалось получить данные для страницы %d", page)
 
         return result
+
+    def get_product_details(self, nm: int) -> dict | None:
+        """
+        Запрашивает детальную информацию о товаре через API identical-products.
+
+        Args:
+            nm (int): Артикул товара.
+
+        Returns:
+            Словарь с детальной информацией или None в случае ошибки.
+        """
+        params = {}
+        logger.info("Запрос детальной информации для товара nm=%d", nm)
+        detail_url = UrlService.get_wb_card_url(nm)
+        result = self._make_request(detail_url, params)
+        if result:
+            logger.info("Детальная информация получена для nm=%d", nm)
+        else:
+            logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
+        return result
+
 
 wb_api_client = WbApiClient()
