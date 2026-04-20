@@ -31,18 +31,14 @@ class TokenManager:
             return self.token
 
         logger.info("Получение нового токена через Selenium...")
-        driver = Driver(
-            uc=True,
-            headed=True,
-            agent=settings.API_HEADERS["user-agent"]
-        )
+        driver = Driver(uc=True, headed=True, agent=settings.API_HEADERS["user-agent"])
         try:
             driver.open(settings.BASE_URL)
             for attempt in range(3):
-                cookies = driver.execute_cdp_cmd('Network.getAllCookies', cmd_args={})
-                for cookie in cookies.get('cookies', []):
-                    if cookie.get('name') == settings.TOKEN_COOKIE_NAME:
-                        token = cookie.get('value')
+                cookies = driver.execute_cdp_cmd("Network.getAllCookies", cmd_args={})
+                for cookie in cookies.get("cookies", []):
+                    if cookie.get("name") == settings.TOKEN_COOKIE_NAME:
+                        token = cookie.get("value")
                         if token:
                             self.token = token
                             self.last_updated = time.time()

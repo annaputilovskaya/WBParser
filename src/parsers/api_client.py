@@ -1,11 +1,11 @@
 """API клиент для работы с Wildberries API."""
+
 import json
 import logging
 import time
+from abc import ABC, abstractmethod
 
 import requests
-
-from abc import ABC, abstractmethod
 
 from src.config.settings import settings
 from src.utils.token_manager import TokenManager
@@ -23,7 +23,7 @@ class IApiClient(ABC):
         query: str,
         page: int = 1,
         price_min: int | None = None,
-        price_max: int | None = None
+        price_max: int | None = None,
     ) -> dict | None:
         """
         Выполняет запрос к поисковому API с поддержкой фильтрации по цене.
@@ -80,7 +80,9 @@ class WbApiClient(IApiClient):
         """Возвращает текущий токен, обновляя при необходимости."""
         return self.token_manager.get_token()
 
-    def _make_request(self, url: str, params: dict, max_retries: int = settings.MAX_RETRIES) -> dict | None:
+    def _make_request(
+        self, url: str, params: dict, max_retries: int = settings.MAX_RETRIES
+    ) -> dict | None:
         """Выполняет HTTP-запрос с обработкой ошибок и повторными попытками.
 
         Args:
@@ -100,7 +102,7 @@ class WbApiClient(IApiClient):
                     url,
                     params=params,
                     cookies=cookies,
-                    timeout=settings.REQUEST_TIMEOUT
+                    timeout=settings.REQUEST_TIMEOUT,
                 )
 
                 if response.status_code == 498:
@@ -112,12 +114,14 @@ class WbApiClient(IApiClient):
 
                 if response.status_code != 200:
                     logger.error(
-                        "Ошибка HTTP %d при запросе к %s",
-                        response.status_code,
-                        url
+                        "Ошибка HTTP %d при запросе к %s", response.status_code, url
                     )
                     if attempt < max_retries:
-                        delay = settings.RETRY_DELAYS[attempt] if attempt < len(settings.RETRY_DELAYS) else 2
+                        delay = (
+                            settings.RETRY_DELAYS[attempt]
+                            if attempt < len(settings.RETRY_DELAYS)
+                            else 2
+                        )
                         logger.info("Повтор через %d секунд...", delay)
                         time.sleep(delay)
                         continue
@@ -128,7 +132,11 @@ class WbApiClient(IApiClient):
             except requests.exceptions.RequestException as e:
                 logger.error("Ошибка сети при запросе к %s: %s", url, e)
                 if attempt < max_retries:
-                    delay = settings.RETRY_DELAYS[attempt] if attempt < len(settings.RETRY_DELAYS) else 2
+                    delay = (
+                        settings.RETRY_DELAYS[attempt]
+                        if attempt < len(settings.RETRY_DELAYS)
+                        else 2
+                    )
                     logger.info("Повтор через %d секунд...", delay)
                     time.sleep(delay)
                 else:
@@ -140,9 +148,11 @@ class WbApiClient(IApiClient):
         return None
 
     def search_products(
-            self, query: str = None,
-            page: int = 1, price_min: int = None,
-            price_max: int = None
+        self,
+        query: str = None,
+        page: int = 1,
+        price_min: int = None,
+        price_max: int = None,
     ) -> dict | None:
         """Выполняет запрос к поисковому API с поддержкой фильтрации по цене.
 
@@ -159,33 +169,38 @@ class WbApiClient(IApiClient):
             query = settings.DEFAULT_SEARCH_QUERY
 
         params = {
-            'ab_testing': ['false', 'false'],
-            'appType': '1',
-            'curr': 'rub',
-            'dest': '-412733',
-            'hide_vflags': '4294967296',
-            'inheritFilters': 'false',
-            'lang': 'ru',
-            'resultset': 'catalog',
-            'sort': 'popular',
-            'spp': '30',
-            'suppressSpellcheck': 'false',
-            'query': query,
-            'page': page,
+            "ab_testing": ["false", "false"],
+            "appType": "1",
+            "curr": "rub",
+            "dest": "-412733",
+            "hide_vflags": "4294967296",
+            "inheritFilters": "false",
+            "lang": "ru",
+            "resultset": "catalog",
+            "sort": "popular",
+            "spp": "30",
+            "suppressSpellcheck": "false",
+            "query": query,
+            "page": page,
         }
 
         if price_min is not None and price_max is not None:
-            params['priceU'] = f"{price_min * 100};{price_max * 100}"
+            params["priceU"] = f"{price_min * 100};{price_max * 100}"
 
         logger.info(
             "Запрос поискового API: query='%s', page=%d, price=%s-%s",
-            query, page, price_min, price_max
+            query,
+            page,
+            price_min,
+            price_max,
         )
 
         result = self._make_request(settings.API_SEARCH_URL, params)
 
         if result:
-            products = result.get('products') or result.get('data', {}).get('products', [])
+            products = result.get("products") or result.get("data", {}).get(
+                "products", []
+            )
             logger.info("Получено %d товаров на странице %d", len(products), page)
         else:
             logger.warning("Не удалось получить данные для страницы %d", page)

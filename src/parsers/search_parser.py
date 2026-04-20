@@ -35,7 +35,7 @@ class SearchParser:
         (5001, 10000),
         (10001, 15000),
         (15001, 25000),
-        (25001, 10000000)
+        (25001, 10000000),
     ]
 
     def __init__(self, client: IApiClient, base_ranges: list[tuple] = None):
@@ -51,7 +51,9 @@ class SearchParser:
         self.base_ranges = base_ranges or self.DEFAULT_BASE_RANGES
         self.detail_parser = ProductDetailParser(client)
 
-    def parse(self, query: str = settings.DEFAULT_SEARCH_QUERY, enrich: bool = True) -> list[Product]:
+    def parse(
+        self, query: str = settings.DEFAULT_SEARCH_QUERY, enrich: bool = True
+    ) -> list[Product]:
         """
         Выполняет полный цикл парсинга по заданному поисковому запросу.
 
@@ -75,13 +77,17 @@ class SearchParser:
         initial_data = self.client.search_products(query=query, page=1)
         expected_total = initial_data.get("total", 0) if initial_data else 0
 
-        logger.info(f"=== НАЧАЛО ПАРСИНГА. Ожидаемое количество (total): {expected_total} ===")
+        logger.info(
+            f"=== НАЧАЛО ПАРСИНГА. Ожидаемое количество (total): {expected_total} ==="
+        )
 
         for min_p, max_p in self.base_ranges:
             logger.info(f"Обработка базового диапазона: {min_p} - {max_p}")
             range_products = self._process_range(query, min_p, max_p)
             all_products.extend(range_products)
-            logger.info(f"После диапазона {min_p}-{max_p} в общем списке уже {len(all_products)} товаров")
+            logger.info(
+                f"После диапазона {min_p}-{max_p} в общем списке уже {len(all_products)} товаров"
+            )
         actual_total = len(all_products)
         logger.info("=== ФИНАЛЬНЫЙ ОТЧЕТ ===")
         logger.info(f"Ожидалось изначально: {expected_total}")
@@ -89,31 +95,35 @@ class SearchParser:
 
         if enrich and all_products:
             logger.info("=== ДОПОНЕНИЕ ТОВАРОВ ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ ===")
-            all_products, failed_products = self.detail_parser.enrich_multiple(all_products)
+            all_products, failed_products = self.detail_parser.enrich_multiple(
+                all_products
+            )
             logger.info(f"Допонено {len(all_products)} товаров")
 
         return all_products
 
     def _process_range(self, query: str, min_p: int, max_p: int) -> list[Product]:
         """
-        Рекурсивно обрабатывает ценовой диапазон для обхода лимитов API.
+         Рекурсивно обрабатывает ценовой диапазон для обхода лимитов API.
 
-        Если количество найденных товаров превышает LIMIT_PER_REQUEST, метод
-        делит текущий диапазон пополам и вызывает сам себя для каждой половины.
-        В противном случае последовательно запрашивает все доступные страницы.
+         Если количество найденных товаров превышает LIMIT_PER_REQUEST, метод
+         делит текущий диапазон пополам и вызывает сам себя для каждой половины.
+         В противном случае последовательно запрашивает все доступные страницы.
 
-        Args:
-           query (str): Поисковая фраза.
-            min_p (int): Минимальная цена диапазона в рублях.
-            max_p (int): Максимальная цена диапазона в рублях.
+         Args:
+            query (str): Поисковая фраза.
+             min_p (int): Минимальная цена диапазона в рублях.
+             max_p (int): Максимальная цена диапазона в рублях.
 
-       Returns:
-           list[Product]: Список товаров, найденных и обработанных в данном диапазоне.
-       """
+        Returns:
+            list[Product]: Список товаров, найденных и обработанных в данном диапазоне.
+        """
         products_in_range = []  # Локальный список для диапазона
 
         # Пробный запрос (Страница 1)
-        first_page_data = self.client.search_products(query, page=1, price_min=min_p, price_max=max_p)
+        first_page_data = self.client.search_products(
+            query, page=1, price_min=min_p, price_max=max_p
+        )
 
         if not first_page_data:
             return []
@@ -128,14 +138,18 @@ class SearchParser:
             products_in_range.extend(self._process_range(query, middle + 1, max_p))
         else:
             pages_to_scan = min(total_pages, 12)
-            logger.info(f"Собираем: {min_p}-{max_p} руб. ({total_items} тов., {pages_to_scan} стр.)")
+            logger.info(
+                f"Собираем: {min_p}-{max_p} руб. ({total_items} тов., {pages_to_scan} стр.)"
+            )
 
             for page in range(1, pages_to_scan + 1):
                 # Для первой страницы используем уже имеющиеся данные
                 if page == 1:
                     current_page_data = first_page_data
                 else:
-                    current_page_data = self.client.search_products(query, page=page, price_min=min_p, price_max=max_p)
+                    current_page_data = self.client.search_products(
+                        query, page=page, price_min=min_p, price_max=max_p
+                    )
 
                 if not current_page_data:
                     logger.warning(f"Пустой ответ на странице {page}")

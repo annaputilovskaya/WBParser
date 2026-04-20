@@ -1,4 +1,5 @@
 """Конфигурационные параметры парсера."""
+
 from pathlib import Path
 from typing import Final, Literal
 
@@ -11,7 +12,9 @@ class Settings:
     SEARCH_URL: Final[str] = f"{BASE_URL}/catalog"
     BASE_PRODUCT_URL: Final[str] = f"{BASE_URL}/product"
 
-    API_SEARCH_URL: Final[str] = "https://www.wildberries.ru/__internal/u-search/exactmatch/ru/common/v18/search"
+    API_SEARCH_URL: Final[str] = (
+        "https://www.wildberries.ru/__internal/u-search/exactmatch/ru/common/v18/search"
+    )
 
     # Заголовки для имитации браузера
     API_HEADERS: Final[dict] = {

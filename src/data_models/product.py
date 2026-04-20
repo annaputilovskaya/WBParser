@@ -16,7 +16,7 @@ class Product:
         description (str): Описание товара.
         image_urls (str): Ссылки на изображения через запятую.
         characteristics (dict[str, str]): Все характеристики с сохранением их структуры.
-        seller_name (str): Название продавцы.
+        seller_name (str): Название продавца.
         seller_url (str): Ссылка на продавца.
         sizes (str): Размеры товара через запятую.
         stock (int): Остатки по товару (число).
@@ -25,6 +25,7 @@ class Product:
         country_of_origin (str): Страна производства.
         image_count (int): Количество изображений.
     """
+
     url: str
     article: int
     name: str
@@ -172,5 +173,5 @@ class Product:
             rating=float(rating),
             review_count=feedbacks,
             country_of_origin="",
-            image_count=image_count
+            image_count=image_count,
         )

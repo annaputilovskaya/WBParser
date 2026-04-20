@@ -39,7 +39,9 @@ class ExcelExporter:
         """
         self.output_dir = Path(output_dir)
 
-    def _export_to_file(self, products: list[Product], filename: str, log_label: str) -> Path | None:
+    def _export_to_file(
+        self, products: list[Product], filename: str, log_label: str
+    ) -> Path | None:
         """Вспомогательный метод для сохранения данных в Excel с обработкой исключений.
 
         Args:
@@ -54,12 +56,15 @@ class ExcelExporter:
         try:
             rows = [p.to_dict() for p in products]
             self._save_to_excel(rows, filepath)
-            logger.info("%s сохранён в %s (%d товаров).", log_label, filepath, len(rows))
+            logger.info(
+                "%s сохранён в %s (%d товаров).", log_label, filepath, len(rows)
+            )
             return filepath
         except PermissionError:
             logger.error(
                 "Не удалось сохранить %s: файл %s открыт в другой программе.",
-                log_label, filename
+                log_label,
+                filename,
             )
         except Exception as e:
             logger.exception("Критическая ошибка при сохранении %s: %s", log_label, e)
@@ -67,7 +72,7 @@ class ExcelExporter:
         return None
 
     def export_full_catalog(
-            self, products: list[Product], filename: str = settings.FULL_CATALOG_FILENAME
+        self, products: list[Product], filename: str = settings.FULL_CATALOG_FILENAME
     ) -> Path | None:
         """Экспортирует полный каталог товаров в Excel.
 
@@ -81,7 +86,7 @@ class ExcelExporter:
         return self._export_to_file(products, filename, "Полный каталог")
 
     def export_basic_catalog(
-            self, products: list[Product], filename: str = settings.BASIC_CATALOG_FILENAME
+        self, products: list[Product], filename: str = settings.BASIC_CATALOG_FILENAME
     ) -> Path | None:
         """Экспортирует базовый каталог товаров (данные из поискового API).
 
@@ -95,12 +100,12 @@ class ExcelExporter:
         return self._export_to_file(products, filename, "Базовый каталог")
 
     def export_filtered_catalog(
-            self,
-            products: list[Product],
-            filename: str = settings.FILTERED_CATALOG_FILENAME,
-            min_rating: float = settings.MIN_RATING,
-            max_price: float = settings.MAX_PRICE,
-            target_country: str = settings.TARGET_COUNTRY,
+        self,
+        products: list[Product],
+        filename: str = settings.FILTERED_CATALOG_FILENAME,
+        min_rating: float = settings.MIN_RATING,
+        max_price: float = settings.MAX_PRICE,
+        target_country: str = settings.TARGET_COUNTRY,
     ) -> Path | None:
         """Экспортирует отфильтрованный каталог товаров по заданным критериям.
 
@@ -114,7 +119,9 @@ class ExcelExporter:
         Returns:
             Path | None: Путь к сохранённому файлу или None при ошибке.
         """
-        filtered = self._filter_products(products, min_rating, max_price, target_country)
+        filtered = self._filter_products(
+            products, min_rating, max_price, target_country
+        )
         return self._export_to_file(filtered, filename, "Отфильтрованный каталог")
 
     def _save_to_excel(self, rows: list[dict], filepath: Path) -> None:
@@ -158,10 +165,10 @@ class ExcelExporter:
 
     @staticmethod
     def _filter_products(
-            products: list[Product],
-            min_rating: float,
-            max_price: float,
-            target_country: str,
+        products: list[Product],
+        min_rating: float,
+        max_price: float,
+        target_country: str,
     ) -> list[Product]:
         """Фильтрует продукты по заданным критериям.
 
@@ -183,9 +190,10 @@ class ExcelExporter:
         target = target_country.strip().lower()
 
         return [
-            product for product in products
+            product
+            for product in products
             if product.rating >= min_rating
-               and product.price <= max_price
-               and product.country_of_origin  # Исключаем None/пусто
-               and str(product.country_of_origin).strip().lower() == target
+            and product.price <= max_price
+            and product.country_of_origin  # Исключаем None/пусто
+            and str(product.country_of_origin).strip().lower() == target
         ]

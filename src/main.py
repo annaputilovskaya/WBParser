@@ -3,9 +3,9 @@
 import logging
 
 from src.config.settings import settings
-from src.parsers.search_parser import SearchParser
 from src.exporters.excel_exporter import ExcelExporter
 from src.parsers.api_client import wb_api_client
+from src.parsers.search_parser import SearchParser
 
 
 def main():
@@ -20,8 +20,10 @@ def main():
         level=settings.LOG_LEVEL,
         format=settings.LOG_FORMAT,
         handlers=[
-            logging.FileHandler(settings.ensure_logs_dir()  / "app.log", encoding="utf-8")
-        ]
+            logging.FileHandler(
+                settings.ensure_logs_dir() / "app.log", encoding="utf-8"
+            )
+        ],
     )
     logger = logging.getLogger(__name__)
 
