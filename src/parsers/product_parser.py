@@ -1,7 +1,7 @@
 """Парсер детальной страницы товара Wildberries."""
+
 import logging
 import time
-
 from abc import ABC, abstractmethod
 
 from src.config.settings import settings
@@ -10,6 +10,7 @@ from src.parsers.api_client import IApiClient
 from src.utils.url_service import UrlService
 
 logger = logging.getLogger(__name__)
+
 
 class IDetailParser(ABC):
     """Интерфейс парсера детальной информации о товаре."""
@@ -56,7 +57,6 @@ class IDetailParser(ABC):
 
 
 class ProductDetailParser(IDetailParser):
-
     """
     Парсер детальной информации о товаре через API identical-products.
 
@@ -70,9 +70,7 @@ class ProductDetailParser(IDetailParser):
     """
 
     def __init__(
-        self,
-        client: IApiClient,
-        delay: float = settings.DELAY_BETWEEN_REQUESTS
+        self, client: IApiClient, delay: float = settings.DELAY_BETWEEN_REQUESTS
     ):
         """
         Инициализирует парсер с API клиентом и настройкой задержки.
@@ -99,10 +97,7 @@ class ProductDetailParser(IDetailParser):
         if details:
             logger.debug("Детальная информация получена для nm=%d", nm)
         else:
-            logger.warning(
-                "Не удалось получить детальную информацию для nm=%d",
-                nm
-                )
+            logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
         time.sleep(self.delay)
         return details
 
@@ -131,17 +126,14 @@ class ProductDetailParser(IDetailParser):
             product.characteristics = chars
 
             product.country_of_origin = next(
-                (v for k, v in chars.items()
-                 if k.lower() == "страна производства"),
-                product.country_of_origin
+                (v for k, v in chars.items() if k.lower() == "страна производства"),
+                product.country_of_origin,
             )
 
         # Название продавца и ссылка
         selling = details.get("selling", {})
         if selling:
-            product.seller_name = selling.get(
-                "brand_name", product.seller_name
-            )
+            product.seller_name = selling.get("brand_name", product.seller_name)
             sid = selling.get("supplier_id")
             if sid:
                 product.seller_url = f"https://www.wildberries.ru/seller/{sid}"
@@ -151,13 +143,15 @@ class ProductDetailParser(IDetailParser):
         if photo_count:
             product.image_count = photo_count
 
-        product.image_urls = "\u200B" + ", ".join(
-            UrlService.generate_image_urls(product.article,product.image_count)
+        product.image_urls = "\u200b" + ", ".join(
+            UrlService.generate_image_urls(product.article, product.image_count)
         )
 
         return product
 
-    def enrich_multiple(self, products: list[Product]) -> tuple[list[Product], list[int]]:
+    def enrich_multiple(
+        self, products: list[Product]
+    ) -> tuple[list[Product], list[int]]:
         """Дополняет список товаров детальной информацией.
 
         Args:
@@ -177,8 +171,7 @@ class ProductDetailParser(IDetailParser):
 
         for idx, product in enumerate(products, start=1):
             logger.info(
-                "Дополнение товара %d из %d (nm=%d)",
-                idx, total, product.article
+                "Дополнение товара %d из %d (nm=%d)", idx, total, product.article
             )
 
             details = self.fetch_details(product.article)
@@ -190,14 +183,13 @@ class ProductDetailParser(IDetailParser):
             else:
                 enriched_products.append(product)
                 failed_products.append(product)
-                logger.warning(
-                    "Не удалось дополнить товар nm=%d",
-                    product.article
-                )
+                logger.warning("Не удалось дополнить товар nm=%d", product.article)
 
         logger.info(
             "Итог: обновлено %d из %d. Ошибок: %d",
-            success_count, total, len(failed_products)
+            success_count,
+            total,
+            len(failed_products),
         )
 
         return enriched_products, failed_products

@@ -1,7 +1,9 @@
 """Сервис для формирования URL изображений и карточек Wildberries."""
+
 import json
 import os
 import time
+
 import requests
 
 
@@ -38,7 +40,7 @@ class BasketManager:
             for entry in hosts:
                 if entry["vol_range_from"] <= vol <= entry["vol_range_to"]:
                     # Извлекаем '01' из 'basket-01.wbbasket.ru'
-                    return entry["host"].split('.')[0].split('-')[-1]
+                    return entry["host"].split(".")[0].split("-")[-1]
         except (KeyError, IndexError, Exception):
             pass
         return "01"
@@ -50,8 +52,9 @@ class BasketManager:
         Returns:
             dict: Словарь с конфигурацией upstreams.
         """
-        if not os.path.exists(cls.FILE_PATH) or \
-                (time.time() - os.path.getmtime(cls.FILE_PATH) > cls.CACHE_HOURS * 3600):
+        if not os.path.exists(cls.FILE_PATH) or (
+            time.time() - os.path.getmtime(cls.FILE_PATH) > cls.CACHE_HOURS * 3600
+        ):
             cls._update_config()
 
         try:
@@ -126,7 +129,9 @@ class UrlService:
         )
 
     @classmethod
-    def generate_image_urls(cls, article: int, count: int, size: str = "big") -> list[str]:
+    def generate_image_urls(
+        cls, article: int, count: int, size: str = "big"
+    ) -> list[str]:
         """Генерирует список ссылок для всех доступных изображений товара.
 
         Args:
@@ -137,7 +142,4 @@ class UrlService:
         Returns:
             list[str]: Список строковых URL-адресов.
         """
-        return [
-            cls.get_img_url(article, i, size)
-            for i in range(1, count + 1)
-        ]
+        return [cls.get_img_url(article, i, size) for i in range(1, count + 1)]
