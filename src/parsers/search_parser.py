@@ -5,7 +5,8 @@ import time
 
 from src.config.settings import settings
 from src.data_models.product import Product
-from src.parsers.api_client import WbApiClient
+from src.parsers.api_client import IApiClient
+from src.parsers.product_parser import ProductDetailParser
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +24,7 @@ class SearchParser:
         LIMIT_PER_REQUEST (int): Константа лимита выдачи API (обычно 1200 товаров).
         DEFAULT_BASE_RANGES (list[tuple[int, int]]): Стандартные ценовые интервалы
             для первичного дробления запроса.
-        client (WbApiClient): Клиент для взаимодействия с внутренним API Wildberries.
+        client (IApiClient): Клиент для взаимодействия с внутренним API Wildberries.
         base_ranges (list[tuple[int, int]]): Текущие ценовые диапазоны, используемые
             экземпляром парсера.
     """
@@ -37,7 +38,7 @@ class SearchParser:
         (25001, 10000000)
     ]
 
-    def __init__(self, client: WbApiClient, base_ranges: list[tuple] = None):
+    def __init__(self, client: IApiClient, base_ranges: list[tuple] = None):
         """
         Инициализирует парсер с API клиентом и настройками диапазонов.
 
@@ -48,21 +49,26 @@ class SearchParser:
         """
         self.client = client
         self.base_ranges = base_ranges or self.DEFAULT_BASE_RANGES
+        self.detail_parser = ProductDetailParser(client)
 
-    def parse(self, query: str = settings.DEFAULT_SEARCH_QUERY ) -> list[Product]:
+    def parse(self, query: str = settings.DEFAULT_SEARCH_QUERY, enrich: bool = True) -> list[Product]:
         """
         Выполняет полный цикл парсинга по заданному поисковому запросу.
 
         Метод сначала запрашивает общее количество товаров для контроля, затем
         итерируется по ценовым диапазонам (base_ranges), используя рекурсивную
-        обработку для каждого из них.
+        обработку для каждого из них. При необходимости обогащает товары
+        детальной информацией (описание, изображения, характеристики и т.д.).
 
         Args:
             query (str): Поисковая фраза. По умолчанию берется из настроек.
+            enrich (bool): Флаг обогащения товаров детальной информацией.
+                Если True (по умолчанию), после сбора базовых данных будет
+                выполнен дополнительный запрос к API детальной информации.
 
         Returns:
             list[Product]: Список уникальных объектов Product, собранных из всех
-                диапазонов и прошедших маппинг.
+                диапазонов и прошедших маппинг (и обогащение, если enrich=True).
         """
         all_products = []
 
@@ -80,6 +86,12 @@ class SearchParser:
         logger.info("=== ФИНАЛЬНЫЙ ОТЧЕТ ===")
         logger.info(f"Ожидалось изначально: {expected_total}")
         logger.info(f"Фактически собрано:  {actual_total}")
+
+        if enrich and all_products:
+            logger.info("=== ДОПОНЕНИЕ ТОВАРОВ ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ ===")
+            all_products, failed_products = self.detail_parser.enrich_multiple(all_products)
+            logger.info(f"Допонено {len(all_products)} товаров")
+
         return all_products
 
     def _process_range(self, query: str, min_p: int, max_p: int) -> list[Product]:

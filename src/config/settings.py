@@ -12,7 +12,6 @@ class Settings:
     BASE_PRODUCT_URL: Final[str] = f"{BASE_URL}/product"
 
     API_SEARCH_URL: Final[str] = "https://www.wildberries.ru/__internal/u-search/exactmatch/ru/common/v18/search"
-    API_PRODUCT_URL: Final[str] = "https://identical-products.wildberries.ru/api/v1/identical"
 
     # Заголовки для имитации браузера
     API_HEADERS: Final[dict] = {
@@ -33,8 +32,8 @@ class Settings:
 
     # Параметры запросов
     REQUEST_TIMEOUT: Final[int] = 30
-    MAX_CONCURRENT_REQUESTS: Final[int] = 5
-    DELAY_BETWEEN_REQUESTS: Final[float] = 1.0  # секунды
+    MAX_CONCURRENT_REQUESTS: Final[int] = 50
+    DELAY_BETWEEN_REQUESTS: Final[float] = 0.5  # секунды
 
     # Параметры API
     MAX_RETRIES: Final[int] = 2

@@ -32,7 +32,7 @@ def main():
         search_parser = SearchParser(client=wb_api_client)
         exporter = ExcelExporter()
 
-        products_data = search_parser.parse()
+        products_data = search_parser.parse(enrich=True)
 
         if not products_data:
             logger.warning("Товары не найдены или произошла ошибка при парсинге.")
@@ -40,9 +40,19 @@ def main():
 
         logger.info(f"Итого собрано товаров: {len(products_data)}")
 
-        # Промежуточный вариант TODO: скорректировать после реализации получения детализированных данных
-        logger.info("Экспорт в базовый каталог...")
-        exporter.export_basic_catalog(products_data)
+        # Экспорт полного каталога (все поля)
+        logger.info("Экспорт полного каталога...")
+        full_path = exporter.export_full_catalog(products_data)
+        if full_path:
+            logger.info(f"Полный каталог сохранён: {full_path}")
+
+        # Экспорт отфильтрованного каталога (рейтинг >= 4.5, цена <= 10000, страна Россия)
+        logger.info("Экспорт отфильтрованного каталога...")
+        filtered_path = exporter.export_filtered_catalog(products_data)
+        if filtered_path:
+            logger.info(f"Отфильтрованный каталог сохранён: {filtered_path}")
+
+        logger.info("Парсинг успешно завершён.")
 
     except KeyboardInterrupt:
         logger.info("Парсинг прерван пользователем.")
