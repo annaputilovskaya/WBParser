@@ -168,21 +168,10 @@ class WbApiClient(IApiClient):
         if query is None:
             query = settings.DEFAULT_SEARCH_QUERY
 
-        params = {
-            "ab_testing": ["false", "false"],
-            "appType": "1",
-            "curr": "rub",
-            "dest": "-412733",
-            "hide_vflags": "4294967296",
-            "inheritFilters": "false",
-            "lang": "ru",
-            "resultset": "catalog",
-            "sort": "popular",
-            "spp": "30",
-            "suppressSpellcheck": "false",
-            "query": query,
-            "page": page,
-        }
+        # Базовые параметры из настроек
+        params = settings.SEARCH_API_PARAMS.copy()
+        # Динамические параметры
+        params.update({"query": query, "page": page})
 
         if price_min is not None and price_max is not None:
             params["priceU"] = f"{price_min * 100};{price_max * 100}"

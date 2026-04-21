@@ -1,10 +1,13 @@
 """Сервис для формирования URL изображений и карточек Wildberries."""
 
 import json
+import logging
 import os
 import time
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 class BasketManager:
@@ -71,8 +74,9 @@ class BasketManager:
             response.raise_for_status()
             with open(cls.FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(response.json(), f, ensure_ascii=False, indent=2)
+            logger.info("Конфигурация корзин успешно обновлена")
         except Exception as e:
-            print(f"Ошибка при обновлении конфигурации корзин: {e}")
+            logger.error("Ошибка при обновлении конфигурации корзин: %s", e)
 
 
 class UrlService:

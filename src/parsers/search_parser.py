@@ -21,22 +21,11 @@ class SearchParser:
     меньше лимита пагинации.
 
     Attributes:
-        LIMIT_PER_REQUEST (int): Константа лимита выдачи API (обычно 1200 товаров).
-        DEFAULT_BASE_RANGES (list[tuple[int, int]]): Стандартные ценовые интервалы
-            для первичного дробления запроса.
         client (IApiClient): Клиент для взаимодействия с внутренним API Wildberries.
         base_ranges (list[tuple[int, int]]): Текущие ценовые диапазоны, используемые
             экземпляром парсера.
+        detail_parser (ProductDetailParser): Парсер детальной информации.
     """
-
-    LIMIT_PER_REQUEST = 1200
-    DEFAULT_BASE_RANGES = [
-        (0, 5000),
-        (5001, 10000),
-        (10001, 15000),
-        (15001, 25000),
-        (25001, 10000000),
-    ]
 
     def __init__(self, client: IApiClient, base_ranges: list[tuple] = None):
         """
@@ -45,10 +34,10 @@ class SearchParser:
         Args:
             client (WbApiClient): Инстанс клиента для выполнения HTTP-запросов.
             base_ranges (list[tuple[int, int]] | None): Пользовательские ценовые
-                диапазоны. Если не указаны, используются DEFAULT_BASE_RANGES.
+                диапазоны. Если не указаны, используются DEFAULT_BASE_RANGES из настроек.
         """
         self.client = client
-        self.base_ranges = base_ranges or self.DEFAULT_BASE_RANGES
+        self.base_ranges = base_ranges or settings.DEFAULT_BASE_RANGES
         self.detail_parser = ProductDetailParser(client)
 
     def parse(
@@ -94,11 +83,11 @@ class SearchParser:
         logger.info(f"Фактически собрано:  {actual_total}")
 
         if enrich and all_products:
-            logger.info("=== ДОПОНЕНИЕ ТОВАРОВ ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ ===")
+            logger.info("=== ДОПОЛНЕНИЕ ТОВАРОВ ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ ===")
             all_products, failed_products = self.detail_parser.enrich_multiple(
                 all_products
             )
-            logger.info(f"Допонено {len(all_products)} товаров")
+            logger.info(f"Дополнено {len(all_products)} товаров")
 
         return all_products
 
@@ -106,8 +95,8 @@ class SearchParser:
         """
          Рекурсивно обрабатывает ценовой диапазон для обхода лимитов API.
 
-         Если количество найденных товаров превышает LIMIT_PER_REQUEST, метод
-         делит текущий диапазон пополам и вызывает сам себя для каждой половины.
+         Если количество найденных товаров превышает лимит API (settings.LIMIT_PER_REQUEST),
+         метод делит текущий диапазон пополам и вызывает сам себя для каждой половины.
          В противном случае последовательно запрашивает все доступные страницы.
 
          Args:
