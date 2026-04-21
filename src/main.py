@@ -15,6 +15,9 @@ def main():
     settings.ensure_logs_dir()
     settings.ensure_output_dir()
 
+    # Валидация настроек перед запуском
+    settings.validate()
+
     # Настраиваем логирование
     logging.basicConfig(
         level=settings.LOG_LEVEL,
