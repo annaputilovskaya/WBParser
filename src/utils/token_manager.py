@@ -33,14 +33,22 @@ class TokenManager:
             return self.token
 
         with self._lock:
-            if self.token and self.last_updated and time.time() - self.last_updated < 3600:
+            if (
+                self.token
+                and self.last_updated
+                and time.time() - self.last_updated < 3600
+            ):
                 return self.token
             logger.info("Получение нового токена через Selenium (только один поток)...")
-            driver = Driver(uc=True, headed=True, agent=settings.API_HEADERS["user-agent"])
+            driver = Driver(
+                uc=True, headed=True, agent=settings.API_HEADERS["user-agent"]
+            )
             try:
                 driver.open(settings.BASE_URL)
                 for attempt in range(3):
-                    cookies = driver.execute_cdp_cmd("Network.getAllCookies", cmd_args={})
+                    cookies = driver.execute_cdp_cmd(
+                        "Network.getAllCookies", cmd_args={}
+                    )
                     for cookie in cookies.get("cookies", []):
                         if cookie.get("name") == settings.TOKEN_COOKIE_NAME:
                             token = cookie.get("value")

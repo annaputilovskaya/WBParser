@@ -182,25 +182,42 @@ class WbApiClient(IApiClient):
         for attempt in range(settings.MAX_RETRIES + 1):
             logger.info(
                 "Запрос поискового API: query='%s', page=%d, price=%s-%s (попытка %d)",
-                query, page, price_min, price_max, attempt + 1
+                query,
+                page,
+                price_min,
+                price_max,
+                attempt + 1,
             )
 
             result = self._make_request(settings.API_SEARCH_URL, params)
 
             if result:
-                products = result.get("products") or result.get("data", {}).get("products", [])
+                products = result.get("products") or result.get("data", {}).get(
+                    "products", []
+                )
                 count = len(products)
                 # В случае, если получаем аномально малое количество продуктов (антибот)
                 if count <= 1 and attempt < settings.MAX_RETRIES:
-                    delay = settings.RETRY_DELAYS[attempt] if attempt < len(settings.RETRY_DELAYS) else 2
-                    logger.warning("Получено всего %d тов. (вероятно сбой). Повтор через %d сек...", count, delay)
+                    delay = (
+                        settings.RETRY_DELAYS[attempt]
+                        if attempt < len(settings.RETRY_DELAYS)
+                        else 2
+                    )
+                    logger.warning(
+                        "Получено всего %d тов. (вероятно сбой). Повтор через %d сек...",
+                        count,
+                        delay,
+                    )
                     time.sleep(delay)
                     continue
                 logger.info("Получено %d товаров на странице %d", count, page)
                 return result
 
             if attempt == settings.MAX_RETRIES:
-                logger.error("Не удалось получить данные для страницы %d после всех ретраев", page)
+                logger.error(
+                    "Не удалось получить данные для страницы %d после всех ретраев",
+                    page,
+                )
 
         return None
 

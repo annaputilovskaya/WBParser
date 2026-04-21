@@ -27,7 +27,7 @@ def main():
             logging.FileHandler(
                 settings.ensure_logs_dir() / "app.log", encoding="utf-8"
             ),
-            logging.StreamHandler(sys.stdout)
+            logging.StreamHandler(sys.stdout),
         ],
     )
     logger = logging.getLogger(__name__)

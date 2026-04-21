@@ -1,7 +1,6 @@
 """Парсер детальной страницы товара Wildberries."""
 
 import logging
-import threading
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -78,10 +77,8 @@ class ProductDetailParser(IDetailParser):
 
         Args:
             client (WbApiClient): Инстанс клиента для выполнения запросов.
-            delay (float): Задержка между последовательными запросами.
         """
         self.client = client
-        self.delay = delay
         self.threads = settings.MAX_THREADS
 
     def fetch_details(self, nm: int) -> dict | None:
@@ -165,7 +162,11 @@ class ProductDetailParser(IDetailParser):
         enriched_products = []  # Инициализируем список
         failed_products = []  # Инициализируем список
 
-        logger.info("Запуск многопоточного обогащения: %d товаров в %d потоков", total, self.threads)
+        logger.info(
+            "Запуск многопоточного обогащения: %d товаров в %d потоков",
+            total,
+            self.threads,
+        )
 
         # Функция, которую будет выполнять каждый поток
         def process_item(product):
@@ -185,9 +186,14 @@ class ProductDetailParser(IDetailParser):
                     failed_products.append(result_prod)
                 current_count = len(enriched_products)
                 if current_count % 500 == 0:
-                    logger.info(f"--- Прогресс: обработано {current_count} из {total} ---")
+                    logger.info(
+                        f"--- Прогресс: обработано {current_count} из {total} ---"
+                    )
 
-        logger.info("Сбор завершен. Успешно: %d, Ошибок: %d",
-                    total - len(failed_products), len(failed_products))
+        logger.info(
+            "Сбор завершен. Успешно: %d, Ошибок: %d",
+            total - len(failed_products),
+            len(failed_products),
+        )
 
         return enriched_products, failed_products
