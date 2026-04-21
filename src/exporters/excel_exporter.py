@@ -85,20 +85,6 @@ class ExcelExporter:
         """
         return self._export_to_file(products, filename, "Полный каталог")
 
-    def export_basic_catalog(
-        self, products: list[Product], filename: str = settings.BASIC_CATALOG_FILENAME
-    ) -> Path | None:
-        """Экспортирует базовый каталог товаров (данные из поискового API).
-
-        Args:
-            products(list[Product]): Список объектов Product для экспорта.
-            filename(str): Имя файла для сохранения (по умолчанию из настроек).
-
-        Returns:
-            Path | None: Путь к сохраненному файлу или None при ошибке.
-        """
-        return self._export_to_file(products, filename, "Базовый каталог")
-
     def export_filtered_catalog(
         self,
         products: list[Product],
