@@ -1,16 +1,25 @@
 [project]
 name = "wbparser"
 version = "0.1.0"
-description = ""
+description = "Парсер данных с Wildberries"
 authors = [
     {name = "Anna_Putilovskaya",email = "putilovakayaa@mail.ru"}
 ]
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "seleniumbase (>=4.48.2,<5.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)"
 ]
 
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]
 build-backend = "poetry.core.masonry.api"
+
+[dependency-groups]
+dev = [
+    "black (>=26.3.1,<27.0.0)",
+    "isort (>=8.0.1,<9.0.0)",
+    "flake8 (>=7.3.0,<8.0.0)"
+]
