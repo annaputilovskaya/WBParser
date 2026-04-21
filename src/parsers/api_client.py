@@ -104,6 +104,9 @@ class WbApiClient(IApiClient):
                     cookies=cookies,
                     timeout=settings.REQUEST_TIMEOUT,
                 )
+                if response.status_code == 404:
+                    logger.error("Статус 404 (не найдено): %s", url)
+                    return None
 
                 if response.status_code == 498:
                     # Токен истек, обновляем и повторяем
@@ -176,25 +179,30 @@ class WbApiClient(IApiClient):
         if price_min is not None and price_max is not None:
             params["priceU"] = f"{price_min * 100};{price_max * 100}"
 
-        logger.info(
-            "Запрос поискового API: query='%s', page=%d, price=%s-%s",
-            query,
-            page,
-            price_min,
-            price_max,
-        )
-
-        result = self._make_request(settings.API_SEARCH_URL, params)
-
-        if result:
-            products = result.get("products") or result.get("data", {}).get(
-                "products", []
+        for attempt in range(settings.MAX_RETRIES + 1):
+            logger.info(
+                "Запрос поискового API: query='%s', page=%d, price=%s-%s (попытка %d)",
+                query, page, price_min, price_max, attempt + 1
             )
-            logger.info("Получено %d товаров на странице %d", len(products), page)
-        else:
-            logger.warning("Не удалось получить данные для страницы %d", page)
 
-        return result
+            result = self._make_request(settings.API_SEARCH_URL, params)
+
+            if result:
+                products = result.get("products") or result.get("data", {}).get("products", [])
+                count = len(products)
+                # В случае, если получаем аномально малое количество продуктов (антибот)
+                if count <= 1 and attempt < settings.MAX_RETRIES:
+                    delay = settings.RETRY_DELAYS[attempt] if attempt < len(settings.RETRY_DELAYS) else 2
+                    logger.warning("Получено всего %d тов. (вероятно сбой). Повтор через %d сек...", count, delay)
+                    time.sleep(delay)
+                    continue
+                logger.info("Получено %d товаров на странице %d", count, page)
+                return result
+
+            if attempt == settings.MAX_RETRIES:
+                logger.error("Не удалось получить данные для страницы %d после всех ретраев", page)
+
+        return None
 
     def get_product_details(self, nm: int) -> dict | None:
         """
@@ -207,12 +215,9 @@ class WbApiClient(IApiClient):
             Словарь с детальной информацией или None в случае ошибки.
         """
         params = {}
-        logger.info("Запрос детальной информации для товара nm=%d", nm)
         detail_url = UrlService.get_wb_card_url(nm)
         result = self._make_request(detail_url, params)
-        if result:
-            logger.info("Детальная информация получена для nm=%d", nm)
-        else:
+        if not result:
             logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
         return result
 

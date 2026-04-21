@@ -31,13 +31,15 @@ class Settings:
         "x-userid": "0",
     }
 
-    # Параметры запросов
-    REQUEST_TIMEOUT: Final[int] = 30
-    DELAY_BETWEEN_REQUESTS: Final[float] = 0.5  # секунды
+    # Параметры запросов (оптимизированы на основе экспериментальных данных)
+    REQUEST_TIMEOUT: Final[int] = 10
+    DELAY_BETWEEN_REQUESTS: Final[float] = 0.3
+    PAGE_DELAY: Final[float] = 0.1
+    MAX_THREADS: Final[int] = 30
 
     # Параметры API
-    MAX_RETRIES: Final[int] = 2
-    RETRY_DELAYS: Final[list] = [1, 2]
+    MAX_RETRIES: Final[int] = 3
+    RETRY_DELAYS: Final[list] = [1, 2, 3]
     TOKEN_COOKIE_NAME: Final[str] = "x_wbaas_token"
 
     # Папки вывода

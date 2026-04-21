@@ -87,8 +87,18 @@ class SearchParser:
             all_products, failed_products = self.detail_parser.enrich_multiple(
                 all_products
             )
-            logger.info(f"Дополнено {len(all_products)} товаров")
-
+            # Если есть ошибки — делаем финальный добор
+            if failed_products:
+                logger.warning(f"Не удалось дополнить {len(failed_products)} товаров. Запуск добора")
+                # Небольшая пауза перед повтором для "остывания" API
+                time.sleep(settings.DELAY_BETWEEN_REQUESTS * 2 if hasattr(settings, 'DELAY_BETWEEN_REQUESTS') else 5)
+                _, still_failed = self.detail_parser.enrich_multiple(
+                    failed_products
+                )
+                if still_failed:
+                    logger.error(f"Окончательно не удалось дополнить: {len(still_failed)} шт.")
+            else:
+                logger.info(f"Дополнено {len(all_products)} товаров")
         return all_products
 
     def _process_range(self, query: str, min_p: int, max_p: int) -> list[Product]:
@@ -154,7 +164,7 @@ class SearchParser:
                     except Exception as e:
                         logger.error(f"Ошибка маппинга: {e}")
 
-                time.sleep(0.2)
+                time.sleep(settings.PAGE_DELAY)
 
         return products_in_range
 
