@@ -1,8 +1,9 @@
 """Парсер детальной страницы товара Wildberries."""
 
 import logging
-import time
+import threading
 from abc import ABC, abstractmethod
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.config.settings import settings
 from src.data_models.product import Product
@@ -31,27 +32,27 @@ class IDetailParser(ABC):
     @abstractmethod
     def enrich_product(self, product: Product, details: dict) -> Product:
         """
-        Допоняет объект Product данными из детальной информации.
+        Дополняет объект Product данными из детальной информации.
 
         Args:
             product (Product): Исходный объект товара.
             details (dict): Детальная информация о товаре из API.
 
         Returns:
-            Product: Допоненный объект товара.
+            Product: Дополненный объект товара.
         """
         pass
 
     @abstractmethod
     def enrich_multiple(self, products: list[Product]) -> list[Product] | None:
         """
-        Допоняет список товаров детальной информацией.
+        Дополняет список товаров детальной информацией.
 
         Args:
             products (list[Product]): Список товаров для обогащения.
 
         Returns:
-            list[Product]: Список допоненных товаров.
+            list[Product]: Список дополненных товаров.
         """
         pass
 
@@ -81,6 +82,7 @@ class ProductDetailParser(IDetailParser):
         """
         self.client = client
         self.delay = delay
+        self.threads = settings.MAX_THREADS
 
     def fetch_details(self, nm: int) -> dict | None:
         """
@@ -92,18 +94,14 @@ class ProductDetailParser(IDetailParser):
         Returns:
             Словарь с детальными данными или None в случае ошибки.
         """
-        logger.debug("Запрос детальной информации для товара nm=%d", nm)
         details = self.client.get_product_details(nm)
-        if details:
-            logger.debug("Детальная информация получена для nm=%d", nm)
-        else:
+        if not details:
             logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
-        time.sleep(self.delay)
         return details
 
     def enrich_product(self, product: Product, details: dict) -> Product:
         """
-        Допоняет объект Product данными из детальной информации.
+        Дополняет объект Product данными из детальной информации.
 
         Args:
             product (Product): Исходный объект товара.
@@ -151,7 +149,7 @@ class ProductDetailParser(IDetailParser):
 
     def enrich_multiple(
         self, products: list[Product]
-    ) -> tuple[list[Product], list[int]]:
+    ) -> tuple[list[Product], list[Product]]:
         """Дополняет список товаров детальной информацией.
 
         Args:
@@ -163,33 +161,33 @@ class ProductDetailParser(IDetailParser):
                 failed_products (list[Product]): Список товаров, которые не удалось дополнить
             )
         """
-        enriched_products = []
-        failed_products = []
-        success_count = 0
+        total = len(products)  # Объявляем total
+        enriched_products = []  # Инициализируем список
+        failed_products = []  # Инициализируем список
 
-        total = len(products)
+        logger.info("Запуск многопоточного обогащения: %d товаров в %d потоков", total, self.threads)
 
-        for idx, product in enumerate(products, start=1):
-            logger.info(
-                "Дополнение товара %d из %d (nm=%d)", idx, total, product.article
-            )
-
+        # Функция, которую будет выполнять каждый поток
+        def process_item(product):
             details = self.fetch_details(product.article)
-
             if details:
-                enriched_product = self.enrich_product(product, details)
-                enriched_products.append(enriched_product)
-                success_count += 1
-            else:
-                enriched_products.append(product)
-                failed_products.append(product)
-                logger.warning("Не удалось дополнить товар nm=%d", product.article)
+                enriched = self.enrich_product(product, details)
+                return enriched, None
+            return product, product.article
 
-        logger.info(
-            "Итог: обновлено %d из %d. Ошибок: %d",
-            success_count,
-            total,
-            len(failed_products),
-        )
+        # Запуск пула потоков
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
+            future_to_product = {executor.submit(process_item, p): p for p in products}
+            for future in as_completed(future_to_product):
+                result_prod, error_nm = future.result()
+                enriched_products.append(result_prod)
+                if error_nm:
+                    failed_products.append(result_prod)
+                current_count = len(enriched_products)
+                if current_count % 500 == 0:
+                    logger.info(f"--- Прогресс: обработано {current_count} из {total} ---")
+
+        logger.info("Сбор завершен. Успешно: %d, Ошибок: %d",
+                    total - len(failed_products), len(failed_products))
 
         return enriched_products, failed_products

@@ -1,6 +1,7 @@
 """Основной скрипт парсера Wildberries."""
 
 import logging
+import sys
 
 from src.config.settings import settings
 from src.exporters.excel_exporter import ExcelExporter
@@ -25,7 +26,8 @@ def main():
         handlers=[
             logging.FileHandler(
                 settings.ensure_logs_dir() / "app.log", encoding="utf-8"
-            )
+            ),
+            logging.StreamHandler(sys.stdout)
         ],
     )
     logger = logging.getLogger(__name__)
