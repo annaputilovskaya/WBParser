@@ -32,8 +32,8 @@ class BasketManager:
         Returns:
             str: Номер корзины (например, '01', '12'). По умолчанию '01'.
         """
-        config = cls._get_config()
         try:
+            config = cls._get_config()
             # Получаем список хостов из структуры JSON
             route_map = config.get("origin", {}).get("mediabasket_route_map", [])
             if not route_map:
