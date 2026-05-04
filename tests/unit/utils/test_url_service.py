@@ -105,9 +105,6 @@ class TestBasketManager:
         )
         assert BasketManager.get_basket_number(5) == "01"
 
-    @pytest.mark.skip(
-        reason="БАГ: Вызов _get_config() в методе get_basket_number находится ВНЕ блока try-except. Нужно перенести вызов внутрь блока try для корректной обработки сетевых и файловых ошибок."
-    )
     def test_get_basket_number_exception_handling(self, mocker: MockerFixture) -> None:
         """Проверяет обработку исключений внутри метода."""
         mocker.patch.object(

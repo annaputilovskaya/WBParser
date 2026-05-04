@@ -65,11 +65,11 @@ class TestTokenManager:
         assert token_manager.last_updated is not None
         assert result == "new_token_value"
 
-    @pytest.mark.slow
     def test_get_token_retries_on_empty_cookies(
         self, token_manager: TokenManager, mocker: MockerFixture
     ) -> None:
         """Проверяет повторные попытки получения токена при пустых куках."""
+        mocker.patch("time.sleep", return_value=None)
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.side_effect = [
@@ -82,11 +82,11 @@ class TestTokenManager:
         assert token_manager.token == "final_token"
         assert result == "final_token"
 
-    @pytest.mark.slow
     def test_get_token_raises_runtime_error_after_max_retries(
         self, token_manager: TokenManager, mocker: MockerFixture
     ) -> None:
         """Проверяет выброс RuntimeError после исчерпания попыток."""
+        mocker.patch("time.sleep", return_value=None)
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {"cookies": []}
@@ -96,6 +96,7 @@ class TestTokenManager:
             token_manager.get_token()
         mock_driver.quit.assert_called_once()
 
+    @pytest.mark.filterwarnings("ignore:Mocks returned by pytest-mock")
     def test_get_token_thread_safety(
         self, token_manager: TokenManager, mocker: MockerFixture
     ) -> None:
@@ -142,11 +143,11 @@ class TestTokenManager:
         result = token_manager.get_token()
         assert result == "desired_token"
 
-    @pytest.mark.slow
     def test_get_token_handles_missing_cookie_key(
         self, token_manager: TokenManager, mocker: MockerFixture
     ) -> None:
         """Проверяет обработку случая, когда в ответе отсутствует ключ 'cookies'."""
+        mocker.patch("time.sleep", return_value=None)
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {}
