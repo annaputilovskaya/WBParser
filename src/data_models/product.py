@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass, field
 
+from src.utils.converters import safe_cast
+
 
 @dataclass
 class Product:
@@ -77,13 +79,11 @@ class Product:
         Returns:
             Экземпляр Product.
         """
-        article = int(data.get("article", 0))
-        price_str = data.get("price", "0")
-        price = float(price_str) if price_str.strip() else 0.0
-        stock = int(data.get("stock", 0))
-        rating_str = data.get("rating", "0")
-        rating = float(rating_str) if rating_str.strip() else 0.0
-        review_count = int(data.get("review_count", 0))
+        article = safe_cast(data.get("article"), int, 0)
+        price = safe_cast(data.get("price"), float, 0.0)
+        stock = safe_cast(data.get("stock"), int, 0)
+        rating = safe_cast(data.get("rating"), float, 0.0)
+        review_count = safe_cast(data.get("review_count"), int, 0)
         chars_str = data.get("characteristics", "")
         characteristics = {}
         if chars_str:

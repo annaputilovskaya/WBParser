@@ -188,9 +188,6 @@ class TestProduct:
         assert result["rating"] == 4.7
         assert result["review_count"] == 25
 
-    @pytest.mark.skip(
-        reason="Метод Product.from_dict не обрабатывает пустые строки для числовых полей (stock, rating, review_count). Требуется исправление основного функционала."
-    )
     @pytest.mark.parametrize(
         "input_dict, expected_article, expected_price, expected_characteristics",
         [
