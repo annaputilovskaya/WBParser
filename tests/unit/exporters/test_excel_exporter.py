@@ -257,7 +257,6 @@ class TestExcelExporter:
         exporter._save_to_excel(rows, filepath)
         assert filepath.exists()
 
-
     def test_save_to_excel_headers_mapping(
         self,
         exporter: ExcelExporter,

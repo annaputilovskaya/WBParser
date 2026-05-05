@@ -221,9 +221,7 @@ class TestUrlService:
         mock.return_value = "05"
         return mock
 
-    def test_get_url_params(
-        self, mock_basket_manager: Mock
-    ) -> None:
+    def test_get_url_params(self, mock_basket_manager: Mock) -> None:
         """Проверяет разбивку артикула на vol, part и basket."""
         vol, part, basket = UrlService._get_url_params(1234567)
         assert vol == 12
@@ -345,9 +343,7 @@ class TestUrlService:
         assert calls[0] == ((1234567, 1, "small"),)
         assert calls[1] == ((1234567, 2, "small"),)
 
-    def test_generate_image_urls_zero_count(
-        self, mock_basket_manager: Mock
-    ) -> None:
+    def test_generate_image_urls_zero_count(self, mock_basket_manager: Mock) -> None:
         """Проверяет генерацию пустого списка при count=0."""
         urls = UrlService.generate_image_urls(article=1234567, count=0)
         assert urls == []
