@@ -189,7 +189,15 @@ class WbApiClient(IApiClient):
                 attempt + 1,
             )
 
-            result = self._make_request(settings.API_SEARCH_URL, params)
+            result = None
+            try:
+                result = self._make_request(settings.API_SEARCH_URL, params)
+            except Exception as e:
+                logger.error(f"Ошибка при выполнении запроса: {e}")
+                if attempt < settings.MAX_RETRIES:
+                    time.sleep(settings.RETRY_DELAYS[attempt])
+                    continue
+                return None
 
             if result:
                 products = result.get("products") or result.get("data", {}).get(
