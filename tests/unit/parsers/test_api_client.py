@@ -82,9 +82,7 @@ class TestWbApiClient:
         else:
             assert result is None
 
-    def test_make_request_network_exception(
-        self, api_client: WbApiClient
-    ) -> None:
+    def test_make_request_network_exception(self, api_client: WbApiClient) -> None:
         """Проверяет обработку исключения сети в _make_request."""
         api_client.session.get.side_effect = requests.exceptions.RequestException(
             "Network error"
