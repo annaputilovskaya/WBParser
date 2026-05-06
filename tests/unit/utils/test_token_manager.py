@@ -5,7 +5,7 @@ import time
 import pytest
 from pytest_mock import MockerFixture
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.utils.token_manager import TokenManager
 
 
@@ -56,7 +56,7 @@ class TestTokenManager:
         call_kwargs = mock_driver_class.call_args.kwargs
         assert call_kwargs["uc"] is True
         assert call_kwargs["headed"] is True
-        mock_driver.open.assert_called_once_with(settings.BASE_URL)
+        mock_driver.open.assert_called_once_with(settings.base_url)
         mock_driver.execute_cdp_cmd.assert_called_once_with(
             "Network.getAllCookies", cmd_args={}
         )

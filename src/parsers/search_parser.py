@@ -3,7 +3,7 @@
 import logging
 import time
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.api_client import IApiClient
 from src.parsers.product_parser import ProductDetailParser
@@ -34,14 +34,14 @@ class SearchParser:
         Args:
             client (WbApiClient): Инстанс клиента для выполнения HTTP-запросов.
             base_ranges (list[tuple[int, int]] | None): Пользовательские ценовые
-                диапазоны. Если не указаны, используются DEFAULT_BASE_RANGES из настроек.
+                диапазоны.
         """
         self.client = client
-        self.base_ranges = base_ranges or settings.DEFAULT_BASE_RANGES
+        self.base_ranges = base_ranges or settings.default_base_ranges
         self.detail_parser = ProductDetailParser(client)
 
     def parse(
-        self, query: str = settings.DEFAULT_SEARCH_QUERY, enrich: bool = True
+        self, query: str = settings.default_search_query, enrich: bool = True
     ) -> list[Product]:
         """
         Выполняет полный цикл парсинга по заданному поисковому запросу.
@@ -170,7 +170,7 @@ class SearchParser:
                     except Exception as e:
                         logger.error(f"Ошибка маппинга: {e}")
 
-                time.sleep(settings.PAGE_DELAY)
+                time.sleep(settings.page_delay)
 
         return products_in_range
 

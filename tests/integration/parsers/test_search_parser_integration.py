@@ -1,4 +1,5 @@
 """Интеграционные тесты для парсера поиска с API клиентом."""
+
 from typing import Any, Generator
 from unittest.mock import Mock, patch
 
@@ -28,7 +29,9 @@ class TestSearchParserIntegration:
             return client
 
     @pytest.fixture
-    def search_parser(self, api_client: WbApiClient) -> Generator[SearchParser, Any, None]:
+    def search_parser(
+        self, api_client: WbApiClient
+    ) -> Generator[SearchParser, Any, None]:
         """Фикстура, создающая экземпляр SearchParser и отключающая паузы sleep."""
         with patch("time.sleep", return_value=None):
             yield SearchParser(client=api_client)
