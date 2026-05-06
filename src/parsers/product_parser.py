@@ -4,7 +4,7 @@ import logging
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.api_client import IApiClient
 from src.utils.url_service import UrlService
@@ -70,7 +70,7 @@ class ProductDetailParser(IDetailParser):
     """
 
     def __init__(
-        self, client: IApiClient, delay: float = settings.DELAY_BETWEEN_REQUESTS
+        self, client: IApiClient,
     ):
         """
         Инициализирует парсер с API клиентом и настройкой задержки.
@@ -79,7 +79,7 @@ class ProductDetailParser(IDetailParser):
             client (WbApiClient): Инстанс клиента для выполнения запросов.
         """
         self.client = client
-        self.threads = settings.MAX_THREADS
+        self.threads = settings.max_threads
 
     def fetch_details(self, nm: int) -> dict | None:
         """

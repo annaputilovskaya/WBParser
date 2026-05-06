@@ -4,9 +4,10 @@ import logging
 import threading
 import time
 
+from fake_useragent import UserAgent
 from seleniumbase import Driver
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -40,17 +41,21 @@ class TokenManager:
             ):
                 return self.token
             logger.info("Получение нового токена через Selenium (только один поток)...")
+            ua = UserAgent().random
+            logger.debug(f"Запуск Selenium с User-Agent: {ua}")
             driver = Driver(
-                uc=True, headed=True, agent=settings.API_HEADERS["user-agent"]
+                uc=True,
+                headed=True,
+                agent=ua
             )
             try:
-                driver.open(settings.BASE_URL)
+                driver.open(settings.base_url)
                 for attempt in range(3):
                     cookies = driver.execute_cdp_cmd(
                         "Network.getAllCookies", cmd_args={}
                     )
                     for cookie in cookies.get("cookies", []):
-                        if cookie.get("name") == settings.TOKEN_COOKIE_NAME:
+                        if cookie.get("name") == settings.token_cookie_name:
                             token = cookie.get("value")
                             if token:
                                 self.token = token

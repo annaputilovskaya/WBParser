@@ -2,12 +2,14 @@
 
 import json
 import logging
+import random
 import time
 from abc import ABC, abstractmethod
 
 import requests
+from fake_useragent import UserAgent
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.utils.token_manager import TokenManager
 from src.utils.url_service import UrlService
 
@@ -74,14 +76,59 @@ class WbApiClient(IApiClient):
         """
         self.token_manager = TokenManager()
         self.session = requests.Session()
-        self.session.headers.update(settings.API_HEADERS)
+        self.session.headers.update(settings.api_headers)
+
+        # Инициализация UserAgent для ротации заголовков
+        self.user_agent = None
+        if settings.user_agent_rotation:
+            self.user_agent = UserAgent()
+            self._update_user_agent_header()
 
     def _get_token(self) -> str:
         """Возвращает текущий токен, обновляя при необходимости."""
         return self.token_manager.get_token()
 
+    def _update_user_agent_header(self) -> None:
+        """
+        Обновляет заголовок User-Agent в сессии на случайное значение.
+
+        Используется только если включена ротация User-Agent в настройках.
+        """
+        if not settings.user_agent_rotation or self.user_agent is None:
+            return
+
+        try:
+            new_ua = self.user_agent.random
+            self.session.headers.update({"User-Agent": new_ua})
+            logger.debug("Обновлён User-Agent: %s", new_ua)
+        except Exception as e:
+            logger.warning("Не удалось обновить User-Agent: %s", e)
+
+    @staticmethod
+    def _calculate_exponential_backoff(attempt: int) -> float:
+        """
+        Вычисляет задержку для экспоненциального backoff.
+
+        Формула: delay = min(base^attempt * random_factor, max_delay)
+        где base = settings.exponential_backoff_base,
+        max_delay = settings.exponential_backoff_max_delay.
+
+        Args:
+            attempt: Номер попытки (начиная с 0).
+
+        Returns:
+            Задержка в секундах.
+        """
+
+        base = settings.exponential_backoff_base
+        max_delay = settings.exponential_backoff_max_delay
+        # Добавляем небольшой случайный фактор для избежания синхронизации
+        random_factor = 0.8 + 0.4 * random.random()
+        delay = (base**attempt) * random_factor
+        return min(delay, max_delay)
+
     def _make_request(
-        self, url: str, params: dict, max_retries: int = settings.MAX_RETRIES
+        self, url: str, params: dict, max_retries: int = settings.max_retries
     ) -> dict | None:
         """Выполняет HTTP-запрос с обработкой ошибок и повторными попытками.
 
@@ -94,7 +141,7 @@ class WbApiClient(IApiClient):
             Словарь с JSON ответом или None в случае ошибки.
         """
 
-        cookies = {settings.TOKEN_COOKIE_NAME: self._get_token()}
+        cookies = {settings.token_cookie_name: self._get_token()}
 
         for attempt in range(max_retries + 1):
             try:
@@ -102,7 +149,7 @@ class WbApiClient(IApiClient):
                     url,
                     params=params,
                     cookies=cookies,
-                    timeout=settings.REQUEST_TIMEOUT,
+                    timeout=settings.request_timeout,
                 )
                 if response.status_code == 404:
                     logger.error("Статус 404 (не найдено): %s", url)
@@ -112,7 +159,17 @@ class WbApiClient(IApiClient):
                     # Токен истек, обновляем и повторяем
                     logger.warning("Токен истек (статус 498), обновляем...")
                     self.token_manager.token = None
-                    cookies = {settings.TOKEN_COOKIE_NAME: self._get_token()}
+                    cookies = {settings.token_cookie_name: self._get_token()}
+                    continue
+
+                if response.status_code == 429:
+                    # Слишком много запросов, применяем экспоненциальный backoff
+                    delay = self._calculate_exponential_backoff(attempt)
+                    logger.warning(
+                        "Слишком много запросов (429). Повтор через %.2f секунд...",
+                        delay,
+                    )
+                    time.sleep(delay)
                     continue
 
                 if response.status_code != 200:
@@ -121,8 +178,8 @@ class WbApiClient(IApiClient):
                     )
                     if attempt < max_retries:
                         delay = (
-                            settings.RETRY_DELAYS[attempt]
-                            if attempt < len(settings.RETRY_DELAYS)
+                            settings.retry_delays[attempt]
+                            if attempt < len(settings.retry_delays)
                             else 2
                         )
                         logger.info("Повтор через %d секунд...", delay)
@@ -136,8 +193,8 @@ class WbApiClient(IApiClient):
                 logger.error("Ошибка сети при запросе к %s: %s", url, e)
                 if attempt < max_retries:
                     delay = (
-                        settings.RETRY_DELAYS[attempt]
-                        if attempt < len(settings.RETRY_DELAYS)
+                        settings.retry_delays[attempt]
+                        if attempt < len(settings.retry_delays)
                         else 2
                     )
                     logger.info("Повтор через %d секунд...", delay)
@@ -152,10 +209,10 @@ class WbApiClient(IApiClient):
 
     def search_products(
         self,
-        query: str = None,
+        query: str | None = None,
         page: int = 1,
-        price_min: int = None,
-        price_max: int = None,
+        price_min: int | None = None,
+        price_max: int | None = None,
     ) -> dict | None:
         """Выполняет запрос к поисковому API с поддержкой фильтрации по цене.
 
@@ -169,17 +226,17 @@ class WbApiClient(IApiClient):
             Словарь с ответом API или None в случае ошибки.
         """
         if query is None:
-            query = settings.DEFAULT_SEARCH_QUERY
+            query = settings.default_search_query
 
         # Базовые параметры из настроек
-        params = settings.SEARCH_API_PARAMS.copy()
+        params = settings.search_api_params.copy()
         # Динамические параметры
         params.update({"query": query, "page": page})
 
         if price_min is not None and price_max is not None:
             params["priceU"] = f"{price_min * 100};{price_max * 100}"
 
-        for attempt in range(settings.MAX_RETRIES + 1):
+        for attempt in range(settings.max_retries + 1):
             logger.info(
                 "Запрос поискового API: query='%s', page=%d, price=%s-%s (попытка %d)",
                 query,
@@ -189,13 +246,12 @@ class WbApiClient(IApiClient):
                 attempt + 1,
             )
 
-            result = None
             try:
-                result = self._make_request(settings.API_SEARCH_URL, params)
+                result = self._make_request(settings.api_search_url, params)
             except Exception as e:
                 logger.error(f"Ошибка при выполнении запроса: {e}")
-                if attempt < settings.MAX_RETRIES:
-                    time.sleep(settings.RETRY_DELAYS[attempt])
+                if attempt < settings.max_retries:
+                    time.sleep(settings.retry_delays[attempt])
                     continue
                 return None
 
@@ -205,10 +261,10 @@ class WbApiClient(IApiClient):
                 )
                 count = len(products)
                 # В случае, если получаем аномально малое количество продуктов (антибот)
-                if count <= 1 and attempt < settings.MAX_RETRIES:
+                if count <= 1 and attempt < settings.max_retries:
                     delay = (
-                        settings.RETRY_DELAYS[attempt]
-                        if attempt < len(settings.RETRY_DELAYS)
+                        settings.retry_delays[attempt]
+                        if attempt < len(settings.retry_delays)
                         else 2
                     )
                     logger.warning(
@@ -221,7 +277,7 @@ class WbApiClient(IApiClient):
                 logger.info("Получено %d товаров на странице %d", count, page)
                 return result
 
-            if attempt == settings.MAX_RETRIES:
+            if attempt == settings.max_retries:
                 logger.error(
                     "Не удалось получить данные для страницы %d после всех ретраев",
                     page,

@@ -1,12 +1,10 @@
 """Основной скрипт парсера Wildberries."""
 
-import logging
-import sys
-
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.exporters.excel_exporter import ExcelExporter
 from src.parsers.api_client import wb_api_client
 from src.parsers.search_parser import SearchParser
+from src.utils.logging_config import get_logger, setup_logging
 
 
 def main():
@@ -16,23 +14,14 @@ def main():
     settings.ensure_logs_dir()
     settings.ensure_output_dir()
 
-    # Валидация настроек перед запуском
-    settings.validate()
+    # Настраиваем логирование с ротацией и JSON-форматированием
+    setup_logging()
+    logger = get_logger(__name__)
 
-    # Настраиваем логирование
-    logging.basicConfig(
-        level=settings.LOG_LEVEL,
-        format=settings.LOG_FORMAT,
-        handlers=[
-            logging.FileHandler(
-                settings.ensure_logs_dir() / "app.log", encoding="utf-8"
-            ),
-            logging.StreamHandler(sys.stdout),
-        ],
+    logger.info(
+        "Начало парсинга по запросу: '%s'",
+        settings.default_search_query,
     )
-    logger = logging.getLogger(__name__)
-
-    logger.info("Начало парсинга по запросу: '%s'", settings.DEFAULT_SEARCH_QUERY)
 
     try:
         # Инициализируем компоненты
@@ -53,7 +42,8 @@ def main():
         if full_path:
             logger.info(f"Полный каталог сохранён: {full_path}")
 
-        # Экспорт отфильтрованного каталога (рейтинг >= 4.5, цена <= 10000, страна Россия)
+        # Экспорт отфильтрованного каталога
+        # (рейтинг >= 4.5, цена <= 10000, страна Россия)
         logger.info("Экспорт отфильтрованного каталога...")
         filtered_path = exporter.export_filtered_catalog(products_data)
         if filtered_path:

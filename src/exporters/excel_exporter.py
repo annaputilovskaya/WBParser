@@ -5,7 +5,7 @@ from pathlib import Path
 
 from openpyxl import Workbook
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.data_models.product import Product
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class ExcelExporter:
         "review_count": "Количество отзывов",
     }
 
-    def __init__(self, output_dir: str | Path = settings.OUTPUT_DIR):
+    def __init__(self, output_dir: str | Path = settings.output_dir):
         """Инициализирует экспортер.
 
         Args:
@@ -72,7 +72,7 @@ class ExcelExporter:
         return None
 
     def export_full_catalog(
-        self, products: list[Product], filename: str = settings.FULL_CATALOG_FILENAME
+        self, products: list[Product], filename: str = settings.full_catalog_filename
     ) -> Path | None:
         """Экспортирует полный каталог товаров в Excel.
 
@@ -88,10 +88,10 @@ class ExcelExporter:
     def export_filtered_catalog(
         self,
         products: list[Product],
-        filename: str = settings.FILTERED_CATALOG_FILENAME,
-        min_rating: float = settings.MIN_RATING,
-        max_price: float = settings.MAX_PRICE,
-        target_country: str = settings.TARGET_COUNTRY,
+        filename: str = settings.filtered_catalog_filename,
+        min_rating: float = settings.min_rating,
+        max_price: float = settings.max_price,
+        target_country: str = settings.target_country,
     ) -> Path | None:
         """Экспортирует отфильтрованный каталог товаров по заданным критериям.
 

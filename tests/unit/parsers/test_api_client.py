@@ -7,7 +7,7 @@ import pytest
 import requests
 from pytest_mock import MockerFixture
 
-from src.config.settings import settings
+from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
 
 
@@ -148,7 +148,7 @@ class TestWbApiClient:
         call_args = mock_make_request.call_args
         assert call_args is not None
         called_url, called_params = call_args[0]
-        assert called_url == settings.API_SEARCH_URL
+        assert called_url == settings.api_search_url
         assert called_params["page"] == page
         if query is not None:
             assert called_params["query"] == query
@@ -176,7 +176,7 @@ class TestWbApiClient:
         mock_make_request.return_value = None
         result = api_client.search_products("тест", page=1)
         assert result is None
-        assert mock_make_request.call_count == settings.MAX_RETRIES + 1
+        assert mock_make_request.call_count == settings.max_retries + 1
 
     def test_get_product_details(
         self, api_client: WbApiClient, mocker: MockerFixture
