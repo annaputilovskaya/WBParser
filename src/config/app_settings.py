@@ -6,17 +6,12 @@
 
 Пример .env файла:
     WB_BASE_URL=https://www.wildberries.ru
-    WB_API_SEARCH_URL=https://www.wildberries.ru/__internal/u-search/exactmatch/ru/common/v18/search
-    REQUEST_TIMEOUT=10
-    DELAY_BETWEEN_REQUESTS=0.3
-    MAX_RETRIES=3
-    LOG_LEVEL=INFO
-    LOG_FORMAT_JSON=false
-    LOG_MAX_BYTES=10485760
-    LOG_BACKUP_COUNT=5
-    SENTRY_DSN=
-    USER_AGENT_ROTATION=true
-    PROXY_POOL=
+    WB_REQUEST_TIMEOUT=10
+    WB_DELAY_BETWEEN_REQUESTS=0.3
+    WB_MAX_RETRIES=3
+    WB_RETRY_DELAYS=1,2,3
+    WB_LOG_LEVEL=INFO
+    WB_PROXY_POOL=
 """
 
 import json
@@ -159,10 +154,6 @@ class AppSettings(BaseSettings):
         default="filtered_catalog.xlsx",
         description="Имя файла отфильтрованного каталога.",
     )
-    basic_catalog_filename: str = Field(
-        default="basic_catalog.xlsx",
-        description="Имя файла базового каталога.",
-    )
 
     # Логирование
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = Field(
@@ -267,6 +258,16 @@ class AppSettings(BaseSettings):
     proxy_pool: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
         description="Список прокси в формате 'http://user:pass@host:port,http://...'.",
+    )
+    proxy_health_check: bool = Field(
+        default=False,
+        description="Проверять работоспособность прокси через внешний сервис.",
+    )
+    enrich_result_timeout: float = Field(
+        default=60.0,
+        ge=1.0,
+        le=600.0,
+        description="Таймаут ожидания результата обогащения одного товара, сек.",
     )
 
     # Экспоненциальный backoff

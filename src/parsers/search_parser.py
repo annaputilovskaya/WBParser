@@ -10,6 +10,8 @@ from src.parsers.product_parser import ProductDetailParser
 
 logger = logging.getLogger(__name__)
 
+ITEMS_PER_PAGE: int = 100
+
 
 class SearchParser:
     """
@@ -29,7 +31,7 @@ class SearchParser:
 
     def __init__(
         self, client: IApiClient, base_ranges: list[tuple[int, int]] | None = None
-    ):
+    ) -> None:
         """
         Инициализирует парсер с API клиентом и настройками диапазонов.
 
@@ -42,9 +44,7 @@ class SearchParser:
         self.base_ranges = base_ranges or settings.default_base_ranges
         self.detail_parser = ProductDetailParser(client)
 
-    def parse(
-        self, query: str = settings.default_search_query, enrich: bool = True
-    ) -> list[Product]:
+    def parse(self, query: str | None = None, enrich: bool = True) -> list[Product]:
         """
         Выполняет полный цикл парсинга по заданному поисковому запросу.
 
@@ -54,7 +54,7 @@ class SearchParser:
         детальной информацией (описание, изображения, характеристики и т.д.).
 
         Args:
-            query (str): Поисковая фраза. По умолчанию берется из настроек.
+            query (str | None): Поисковая фраза. По умолчанию берется из настроек.
             enrich (bool): Флаг обогащения товаров детальной информацией.
                 Если True (по умолчанию), после сбора базовых данных будет
                 выполнен дополнительный запрос к API детальной информации.
@@ -63,6 +63,8 @@ class SearchParser:
             list[Product]: Список уникальных объектов Product, собранных из всех
                 диапазонов и прошедших маппинг (и обогащение, если enrich=True).
         """
+        if query is None:
+            query = settings.default_search_query
         all_products = []
 
         initial_data = self.client.search_products(query=query, page=1)
@@ -95,11 +97,7 @@ class SearchParser:
                     f"Не удалось дополнить {len(failed_products)} товаров. Запуск добора"
                 )
                 # Небольшая пауза перед повтором для "остывания" API
-                time.sleep(
-                    settings.DELAY_BETWEEN_REQUESTS * 2
-                    if hasattr(settings, "DELAY_BETWEEN_REQUESTS")
-                    else 5
-                )
+                time.sleep(settings.delay_between_requests * 2)
                 _, still_failed = self.detail_parser.enrich_multiple(failed_products)
                 if still_failed:
                     logger.error(
@@ -138,13 +136,15 @@ class SearchParser:
         total_pages = self.get_total_pages_from_json(first_page_data)
         total_items = first_page_data.get("total", 0)
 
-        if total_pages > 12 and (max_p - min_p) > 1:
+        max_pages = max(settings.limit_per_request // ITEMS_PER_PAGE, 1)
+
+        if total_pages > max_pages and (max_p - min_p) > 1:
             middle = (min_p + max_p) // 2
             logger.warning(f"Дробим: {min_p}-{max_p} (тов: {total_items})")
             products_in_range.extend(self._process_range(query, min_p, middle))
             products_in_range.extend(self._process_range(query, middle + 1, max_p))
         else:
-            pages_to_scan = min(total_pages, 12)
+            pages_to_scan = min(total_pages, max_pages)
             logger.info(
                 f"Собираем: {min_p}-{max_p} руб. ({total_items} тов., {pages_to_scan} стр.)"
             )
@@ -187,7 +187,6 @@ class SearchParser:
             int: Количество страниц для пагинации (из расчета 100 товаров на страницу).
         """
         total_items = json_data.get("total", 0)
-        items_per_page = 100
         if total_items == 0:
             return 0
-        return (total_items + items_per_page - 1) // items_per_page
+        return -(-total_items // ITEMS_PER_PAGE)

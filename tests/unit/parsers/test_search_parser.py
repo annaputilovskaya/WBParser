@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 from pytest_mock import MockerFixture
+from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.search_parser import SearchParser
 
@@ -219,3 +220,43 @@ class TestSearchParser:
             result = search_parser._process_range("тест", 0, 1000)
 
         assert result == []
+
+    def test_max_pages_derived_from_limit_per_request(
+        self, search_parser: SearchParser, mocker: MockerFixture
+    ) -> None:
+        """Число сканируемых страниц вычисляется из limit_per_request."""
+        mocker.patch.object(settings, "limit_per_request", 300)
+        mocker.patch("time.sleep", return_value=None)
+        data = {"total": 1500, "products": [{}]}
+        search_parser.client.search_products.return_value = data
+        mock_product = Product(url="", article=1, name="Т", price=1.0)
+        mocker.patch.object(Product, "from_api_search_data", return_value=mock_product)
+
+        result = search_parser._process_range("тест", 100, 101)
+
+        # 300 // ITEMS_PER_PAGE(100) == 3 страницы, диапазон не дробим (ширина 1)
+        assert len(result) == 3
+        assert search_parser.client.search_products.call_count == 3
+
+    def test_parse_retry_uses_delay_between_requests(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+    ) -> None:
+        """Пауза перед добором обогащения берётся из settings.delay_between_requests."""
+        sleep_mock = mocker.patch("time.sleep")
+        mocker.patch.object(settings, "delay_between_requests", 0.25)
+        search_parser.base_ranges = [(0, 1000)]
+        search_parser.client.search_products.return_value = mock_api_response_search
+        mock_product = Product(url="", article=1, name="Т", price=1.0)
+        search_parser._process_range = Mock(return_value=[mock_product])
+        search_parser.detail_parser.enrich_multiple = Mock(
+            side_effect=[([mock_product], [mock_product]), ([mock_product], [])]
+        )
+
+        result = search_parser.parse(query="тест", enrich=True)
+
+        assert len(result) == 1
+        assert search_parser.detail_parser.enrich_multiple.call_count == 2
+        sleep_mock.assert_any_call(0.5)
