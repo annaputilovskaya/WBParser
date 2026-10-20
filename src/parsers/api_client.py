@@ -126,18 +126,21 @@ class WbApiClient(IApiClient):
         return min(delay, max_delay)
 
     def _make_request(
-        self, url: str, params: dict, max_retries: int = settings.max_retries
+        self, url: str, params: dict, max_retries: int | None = None
     ) -> dict | None:
         """Выполняет HTTP-запрос с обработкой ошибок и повторными попытками.
 
         Args:
             url(str): URL для запроса.
             params(dict): Параметры запроса.
-            max_retries(int): Максимальное количество попыток.
+            max_retries(int | None): Максимальное количество попыток.
+                Если None — берётся из settings.max_retries.
 
         Returns:
             Словарь с JSON ответом или None в случае ошибки.
         """
+        if max_retries is None:
+            max_retries = settings.max_retries
 
         cookies = {settings.token_cookie_name: self._get_token()}
 
@@ -299,6 +302,3 @@ class WbApiClient(IApiClient):
         if not result:
             logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
         return result
-
-
-wb_api_client = WbApiClient()

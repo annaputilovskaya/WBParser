@@ -2,17 +2,16 @@
 
 from src.config.app_settings import settings
 from src.exporters.excel_exporter import ExcelExporter
-from src.parsers.api_client import wb_api_client
+from src.parsers.api_client import WbApiClient
 from src.parsers.search_parser import SearchParser
 from src.utils.logging_config import get_logger, setup_logging
 
 
-def main():
+def main() -> None:
     """Основная функция парсинга с использованием API поиска."""
-
-    # Создаем необходимые директории
     settings.ensure_logs_dir()
     settings.ensure_output_dir()
+    settings.ensure_cache_dir()
 
     # Настраиваем логирование с ротацией и JSON-форматированием
     setup_logging()
@@ -24,8 +23,9 @@ def main():
     )
 
     try:
-        # Инициализируем компоненты
-        search_parser = SearchParser(client=wb_api_client)
+        # Composition root: создаём зависимости и инжектируем их
+        client = WbApiClient()
+        search_parser = SearchParser(client=client)
         exporter = ExcelExporter()
 
         products_data = search_parser.parse(enrich=True)
@@ -34,20 +34,17 @@ def main():
             logger.warning("Товары не найдены или произошла ошибка при парсинге.")
             return
 
-        logger.info(f"Итого собрано товаров: {len(products_data)}")
+        logger.info("Итого собрано товаров: %d", len(products_data))
 
-        # Экспорт полного каталога (все поля)
         logger.info("Экспорт полного каталога...")
         full_path = exporter.export_full_catalog(products_data)
         if full_path:
-            logger.info(f"Полный каталог сохранён: {full_path}")
+            logger.info("Полный каталог сохранён: %s", full_path)
 
-        # Экспорт отфильтрованного каталога
-        # (рейтинг >= 4.5, цена <= 10000, страна Россия)
         logger.info("Экспорт отфильтрованного каталога...")
         filtered_path = exporter.export_filtered_catalog(products_data)
         if filtered_path:
-            logger.info(f"Отфильтрованный каталог сохранён: {filtered_path}")
+            logger.info("Отфильтрованный каталог сохранён: %s", filtered_path)
 
         logger.info("Парсинг успешно завершён.")
 

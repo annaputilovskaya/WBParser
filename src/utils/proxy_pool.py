@@ -195,7 +195,3 @@ class ProxyPool:
         self.proxies.clear()
         self.current_index = 0
         logger.info("Пул прокси очищен.")
-
-
-# Глобальный экземпляр пула прокси
-proxy_pool = ProxyPool()
