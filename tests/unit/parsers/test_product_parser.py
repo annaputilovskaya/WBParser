@@ -4,6 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 from pytest_mock import MockerFixture
+from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.product_parser import IDetailParser, ProductDetailParser
 
@@ -205,3 +206,65 @@ class TestProductDetailParser:
             parser.enrich_multiple(products)
         progress_logs = [rec for rec in caplog.records if "Прогресс" in rec.message]
         assert len(progress_logs) >= 3
+
+    def test_enrich_multiple_fetch_exception_moves_to_failed(
+        self, parser: ProductDetailParser, mock_client: Mock
+    ) -> None:
+        """Исключение в потоке не роняет обогащение: товар уходит в failed."""
+        products = [
+            Product(url="", article=1, name="Т1", price=100.0),
+            Product(url="", article=2, name="Т2", price=200.0),
+            Product(url="", article=3, name="Т3", price=300.0),
+        ]
+
+        def details(nm: int) -> dict | None:
+            if nm == 1:
+                raise RuntimeError("boom")
+            if nm == 2:
+                return None
+            return {"description": "Успех"}
+
+        mock_client.get_product_details.side_effect = details
+
+        enriched, failed = parser.enrich_multiple(products)
+
+        assert len(enriched) == 3
+        failed_articles = {p.article for p in failed}
+        assert failed_articles == {1, 2}
+        results = {p.article: p for p in enriched}
+        assert results[3].description == "Успех"
+
+    def test_enrich_multiple_enrich_product_exception_moves_to_failed(
+        self, parser: ProductDetailParser, mock_client: Mock, mocker: MockerFixture
+    ) -> None:
+        """Ошибка в enrich_product также изолируется и логируется."""
+        mock_client.get_product_details.return_value = {"description": "X"}
+        mocker.patch.object(
+            parser, "enrich_product", side_effect=ValueError("bad details")
+        )
+        products = [Product(url="", article=7, name="Т", price=1.0)]
+
+        enriched, failed = parser.enrich_multiple(products)
+
+        assert [p.article for p in enriched] == [7]
+        assert [p.article for p in failed] == [7]
+
+    def test_enrich_multiple_timeout_moves_to_failed(
+        self, parser: ProductDetailParser, mock_client: Mock, mocker: MockerFixture
+    ) -> None:
+        """Зависший запрос не блокирует процесс: товар уходит в failed."""
+        import time
+
+        mocker.patch.object(settings, "enrich_result_timeout", 0.05)
+
+        def slow_details(nm: int) -> dict:
+            time.sleep(0.4)
+            return {"description": "late"}
+
+        mock_client.get_product_details.side_effect = slow_details
+        products = [Product(url="", article=9, name="Т", price=1.0)]
+
+        enriched, failed = parser.enrich_multiple(products)
+
+        assert [p.article for p in enriched] == [9]
+        assert [p.article for p in failed] == [9]
