@@ -1,0 +1,55 @@
+# Окружение и зависимости
+.venv/
+venv/
+ENV/
+dist/
+build/
+poetry.toml
+.python-version
+
+# IDE
+.idea/
+
+# Git и CI
+.git/
+.github/
+
+# Логи, кэш, временные файлы
+__pycache__/
+*.py[cod]
+*.log
+.pytest_cache/
+.mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
+coverage.json
+tmp/
+temp/
+
+# Данные парсера (создаются в рантайме)
+data/
+src/downloaded_files/
+*.xlsx
+*.xls
+*.csv
+
+# Секреты
+.env
+local_settings.py
+
+# Docker-специфичные
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Тесты и документация
+tests/
+docs/
+README.md
+README.ru.md
+LICENSE
+.gitignore
+
+# Следы работы агентов
+AGENTS.md
