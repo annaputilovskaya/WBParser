@@ -26,7 +26,6 @@ class IDetailParser(ABC):
         Returns:
             Словарь с детальными данными или None в случае ошибки.
         """
-        pass
 
     @abstractmethod
     def enrich_product(self, product: Product, details: dict) -> Product:
@@ -40,7 +39,6 @@ class IDetailParser(ABC):
         Returns:
             Product: Дополненный объект товара.
         """
-        pass
 
     @abstractmethod
     def enrich_multiple(self, products: list[Product]) -> list[Product] | None:
@@ -53,7 +51,6 @@ class IDetailParser(ABC):
         Returns:
             list[Product]: Список дополненных товаров.
         """
-        pass
 
 
 class ProductDetailParser(IDetailParser):
@@ -70,7 +67,8 @@ class ProductDetailParser(IDetailParser):
     """
 
     def __init__(
-        self, client: IApiClient,
+        self,
+        client: IApiClient,
     ):
         """
         Инициализирует парсер с API клиентом и настройкой задержки.

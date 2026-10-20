@@ -7,7 +7,6 @@
 
 import logging
 import time
-from typing import List, Optional
 
 import requests
 
@@ -33,7 +32,7 @@ class ProxyPool:
 
     def __init__(
         self,
-        proxies: Optional[List[str]] = None,
+        proxies: list[str] | None = None,
         health_check_enabled: bool = True,
         health_check_timeout: int = 5,
     ):
@@ -50,7 +49,7 @@ class ProxyPool:
         if proxies is None:
             proxies = settings.proxy_pool
 
-        self.proxies: List[str] = proxies if proxies else []
+        self.proxies: list[str] = proxies if proxies else []
         self.current_index = 0
         self.last_used = 0.0
         self.health_check_enabled = health_check_enabled
@@ -64,7 +63,7 @@ class ProxyPool:
         else:
             logger.warning("Пул прокси пуст. Запросы будут выполняться без прокси.")
 
-    def get_next_proxy(self) -> Optional[str]:
+    def get_next_proxy(self) -> str | None:
         """
         Возвращает следующий доступный прокси из пула.
 
@@ -171,7 +170,7 @@ class ProxyPool:
         else:
             logger.warning("Прокси %s не найден в пуле.", proxy)
 
-    def get_current_proxy(self) -> Optional[str]:
+    def get_current_proxy(self) -> str | None:
         """
         Возвращает текущий активный прокси без ротации.
 
@@ -196,7 +195,3 @@ class ProxyPool:
         self.proxies.clear()
         self.current_index = 0
         logger.info("Пул прокси очищен.")
-
-
-# Глобальный экземпляр пула прокси
-proxy_pool = ProxyPool()

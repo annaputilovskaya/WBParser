@@ -15,6 +15,8 @@ from pythonjsonlogger.json import JsonFormatter
 
 from src.config.app_settings import settings
 
+logger = logging.getLogger(__name__)
+
 
 def setup_logging() -> None:
     """
@@ -82,7 +84,7 @@ def setup_logging() -> None:
         root_logger.addHandler(handler)
 
     # Логирование успешной настройки
-    logging.info(
+    logger.info(
         "Логирование настроено. Уровень: %s, JSON: %s, ротация: %d МБ, "
         "резервных копий: %d",
         settings.log_level,
@@ -113,7 +115,7 @@ def create_json_formatter() -> JsonFormatter:
     ]
     json_format = " ".join(f"%({field})s" for field in json_fields)
 
-    formatter = JsonFormatter(
+    return JsonFormatter(
         fmt=json_format,
         rename_fields={
             "asctime": "timestamp",
@@ -127,7 +129,6 @@ def create_json_formatter() -> JsonFormatter:
         },
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    return formatter
 
 
 def create_text_formatter() -> logging.Formatter:

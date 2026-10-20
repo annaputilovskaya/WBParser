@@ -39,7 +39,6 @@ class IApiClient(ABC):
         Returns:
             Словарь с ответом API или None в случае ошибки.
         """
-        pass
 
     @abstractmethod
     def get_product_details(self, nm: int) -> dict | None:
@@ -52,7 +51,6 @@ class IApiClient(ABC):
         Returns:
             Словарь с детальной информацией или None в случае ошибки.
         """
-        pass
 
 
 class WbApiClient(IApiClient):
@@ -128,18 +126,21 @@ class WbApiClient(IApiClient):
         return min(delay, max_delay)
 
     def _make_request(
-        self, url: str, params: dict, max_retries: int = settings.max_retries
+        self, url: str, params: dict, max_retries: int | None = None
     ) -> dict | None:
         """Выполняет HTTP-запрос с обработкой ошибок и повторными попытками.
 
         Args:
             url(str): URL для запроса.
             params(dict): Параметры запроса.
-            max_retries(int): Максимальное количество попыток.
+            max_retries(int | None): Максимальное количество попыток.
+                Если None — берётся из settings.max_retries.
 
         Returns:
             Словарь с JSON ответом или None в случае ошибки.
         """
+        if max_retries is None:
+            max_retries = settings.max_retries
 
         cookies = {settings.token_cookie_name: self._get_token()}
 
@@ -189,8 +190,8 @@ class WbApiClient(IApiClient):
 
                 return response.json()
 
-            except requests.exceptions.RequestException as e:
-                logger.error("Ошибка сети при запросе к %s: %s", url, e)
+            except requests.exceptions.RequestException:
+                logger.exception("Ошибка сети при запросе к %s.", url)
                 if attempt < max_retries:
                     delay = (
                         settings.retry_delays[attempt]
@@ -201,8 +202,8 @@ class WbApiClient(IApiClient):
                     time.sleep(delay)
                 else:
                     return None
-            except json.JSONDecodeError as e:
-                logger.error("Ошибка парсинга JSON ответа от %s: %s", url, e)
+            except json.JSONDecodeError:
+                logger.exception("Ошибка парсинга JSON ответа от %s.", url)
                 return None
 
         return None
@@ -248,8 +249,8 @@ class WbApiClient(IApiClient):
 
             try:
                 result = self._make_request(settings.api_search_url, params)
-            except Exception as e:
-                logger.error(f"Ошибка при выполнении запроса: {e}")
+            except Exception:
+                logger.exception("Ошибка при выполнении запроса.")
                 if attempt < settings.max_retries:
                     time.sleep(settings.retry_delays[attempt])
                     continue
@@ -301,6 +302,3 @@ class WbApiClient(IApiClient):
         if not result:
             logger.warning("Не удалось получить детальную информацию для nm=%d", nm)
         return result
-
-
-wb_api_client = WbApiClient()

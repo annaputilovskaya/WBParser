@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook
-
 from src.data_models.product import Product
 from src.exporters.excel_exporter import ExcelExporter
 

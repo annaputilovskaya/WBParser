@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-
 from src.config.app_settings import AppSettings
 
 
@@ -62,9 +61,7 @@ class TestDefaultBaseRanges:
 
     def test_semicolon_format(self) -> None:
         """Формат «0-5000;5001-10000» парсится в кортежи."""
-        settings = AppSettings(
-            _env_file=None, default_base_ranges="0-5000;5001-10000"
-        )
+        settings = AppSettings(_env_file=None, default_base_ranges="0-5000;5001-10000")
         assert settings.default_base_ranges == [(0, 5000), (5001, 10000)]
 
     def test_json_format(self) -> None:
@@ -132,3 +129,29 @@ class TestDefaultsAndEnvExample:
         assert settings.token_no_sandbox is False
         assert settings.token_headless is True
         assert settings.token_timeout == 30
+
+
+class TestPr2Settings:
+    """Тесты новых настроек PR2."""
+
+    def test_defaults(self) -> None:
+        """Дефолты enrich_result_timeout и proxy_health_check."""
+        settings = AppSettings(_env_file=None)
+        assert settings.enrich_result_timeout == 60.0
+        assert settings.proxy_health_check is False
+
+    def test_enrich_result_timeout_bounds(self) -> None:
+        """Недопустимое значение таймаута отклоняется."""
+        with pytest.raises(ValidationError):
+            AppSettings(_env_file=None, enrich_result_timeout=0)
+
+    def test_basic_catalog_filename_removed(self) -> None:
+        """Неиспользуемая настройка удалена."""
+        settings = AppSettings(_env_file=None)
+        assert not hasattr(settings, "basic_catalog_filename")
+
+    def test_env_example_pr2_variables(self) -> None:
+        """.env.example содержит новые переменные PR2."""
+        settings = AppSettings(_env_file=Path(".env.example"))
+        assert settings.enrich_result_timeout == 60.0
+        assert settings.proxy_health_check is False

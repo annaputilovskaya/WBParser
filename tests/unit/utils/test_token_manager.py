@@ -4,7 +4,6 @@ import time
 
 import pytest
 from pytest_mock import MockerFixture
-
 from src.config.app_settings import settings
 from src.utils.token_manager import TokenManager
 
