@@ -2,7 +2,12 @@
 
 import logging
 from abc import ABC, abstractmethod
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import (
+    ThreadPoolExecutor,
+)
+from concurrent.futures import (
+    TimeoutError as FuturesTimeoutError,
+)
 
 from src.config.app_settings import settings
 from src.data_models.product import Product
@@ -41,7 +46,9 @@ class IDetailParser(ABC):
         """
 
     @abstractmethod
-    def enrich_multiple(self, products: list[Product]) -> list[Product] | None:
+    def enrich_multiple(
+        self, products: list[Product]
+    ) -> tuple[list[Product], list[Product]]:
         """
         Дополняет список товаров детальной информацией.
 
@@ -49,7 +56,8 @@ class IDetailParser(ABC):
             products (list[Product]): Список товаров для обогащения.
 
         Returns:
-            list[Product]: Список дополненных товаров.
+            tuple[list[Product], list[Product]]: (обогащённые и исходные товары,
+                товары, которые не удалось обогатить).
         """
 
 
@@ -147,18 +155,20 @@ class ProductDetailParser(IDetailParser):
     ) -> tuple[list[Product], list[Product]]:
         """Дополняет список товаров детальной информацией.
 
+        Ошибки и таймауты изолируются: проблемный товар попадает в
+        failed_products, процесс не прерывается.
+
         Args:
             products (list[Product]): Список товаров для дополнения.
 
         Returns:
-            tuple: (
-                enriched_products (list[Product]): Все товары (обновленные и нет),
-                failed_products (list[Product]): Список товаров, которые не удалось дополнить
-            )
+            tuple[list[Product], list[Product]]: (все товары, товары,
+                которые не удалось дополнить).
         """
-        total = len(products)  # Объявляем total
-        enriched_products = []  # Инициализируем список
-        failed_products = []  # Инициализируем список
+        total = len(products)
+        enriched_products: list[Product] = []
+        failed_products: list[Product] = []
+        enriched_articles: set[int] = set()
 
         logger.info(
             "Запуск многопоточного обогащения: %d товаров в %d потоков",
@@ -166,26 +176,62 @@ class ProductDetailParser(IDetailParser):
             self.threads,
         )
 
-        # Функция, которую будет выполнять каждый поток
-        def process_item(product):
-            details = self.fetch_details(product.article)
-            if details:
-                enriched = self.enrich_product(product, details)
-                return enriched, None
-            return product, product.article
+        def process_item(product: Product) -> tuple[Product, int | None]:
+            """Обрабатывает один товар, изолируя ошибки внутри потока."""
+            try:
+                details = self.fetch_details(product.article)
+            except Exception:
+                logger.exception(
+                    "Ошибка запроса деталей для артикула %s", product.article
+                )
+                return product, product.article
+            if not details:
+                return product, product.article
+            try:
+                return self.enrich_product(product, details), None
+            except Exception:
+                logger.exception("Ошибка обогащения артикула %s", product.article)
+                return product, product.article
 
-        # Запуск пула потоков
         with ThreadPoolExecutor(max_workers=self.threads) as executor:
             future_to_product = {executor.submit(process_item, p): p for p in products}
-            for future in as_completed(future_to_product):
-                result_prod, error_nm = future.result()
+            for future, source in future_to_product.items():
+                try:
+                    result_prod, error_nm = future.result(
+                        timeout=settings.enrich_result_timeout
+                    )
+                except FuturesTimeoutError:
+                    logger.exception(
+                        "Таймаут обогащения артикула %s (%.0f сек)",
+                        source.article,
+                        settings.enrich_result_timeout,
+                    )
+                    if source.article not in enriched_articles:
+                        enriched_articles.add(source.article)
+                        enriched_products.append(source)
+                    failed_products.append(source)
+                    continue
+                except Exception:
+                    logger.exception(
+                        "Неожиданная ошибка потока для артикула %s", source.article
+                    )
+                    if source.article not in enriched_articles:
+                        enriched_articles.add(source.article)
+                        enriched_products.append(source)
+                    failed_products.append(source)
+                    continue
+
+                if result_prod.article in enriched_articles:
+                    continue
+                enriched_articles.add(result_prod.article)
                 enriched_products.append(result_prod)
-                if error_nm:
+                if error_nm is not None:
                     failed_products.append(result_prod)
+
                 current_count = len(enriched_products)
                 if current_count % 500 == 0:
                     logger.info(
-                        f"--- Прогресс: обработано {current_count} из {total} ---"
+                        "--- Прогресс: обработано %d из %d ---", current_count, total
                     )
 
         logger.info(

@@ -302,5 +302,50 @@ class TestExcelExporter:
             sample_products[0].stock,
             sample_products[0].rating,
             sample_products[0].review_count,
+            sample_products[0].country_of_origin,
         ]
         assert row_data == expected_values
+
+    @pytest.mark.parametrize(
+        "payload",
+        [
+            '=HYPERLINK("http://evil.example","click")',
+            ' =HYPERLINK("http://evil.example","click")',
+            "\t=CMD|' /C calc'!A0",
+            "-2+3",
+            "+7",
+            "@SUM(A1)",
+        ],
+    )
+    def test_save_to_excel_neutralizes_formula_injection(
+        self, exporter: ExcelExporter, payload: str, temp_output_dir: Path
+    ) -> None:
+        """Формулы-подобные значения сохраняются текстом, а не формулой."""
+        rows = [{"url": payload, "article": 1, "name": "Товар", "price": 10.0}]
+        filepath = temp_output_dir / "injection.xlsx"
+        exporter._save_to_excel(rows, filepath)
+
+        ws = load_workbook(filepath).active
+        cell = ws.cell(row=2, column=1)
+        assert cell.data_type == "s"
+        assert isinstance(cell.value, str)
+        assert cell.value.startswith("'")
+
+    def test_save_to_excel_normalizes_newlines(
+        self, exporter: ExcelExporter, temp_output_dir: Path
+    ) -> None:
+        """Переносы строк в текстовых ячейках заменяются пробелом."""
+        rows = [{"url": "line1\nline2", "article": 1, "name": "n", "price": 1.0}]
+        filepath = temp_output_dir / "newlines.xlsx"
+        exporter._save_to_excel(rows, filepath)
+
+        ws = load_workbook(filepath).active
+        value = ws.cell(row=2, column=1).value
+        assert "\n" not in value
+        assert value == "line1 line2"
+
+    def test_sanitize_cell_keeps_non_strings(self) -> None:
+        """Числовые значения не преобразуются в строки."""
+        assert ExcelExporter._sanitize_cell(10.5) == 10.5
+        assert ExcelExporter._sanitize_cell(7) == 7
+        assert ExcelExporter._sanitize_cell(None) is None

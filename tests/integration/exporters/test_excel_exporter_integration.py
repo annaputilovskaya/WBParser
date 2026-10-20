@@ -96,6 +96,7 @@ class TestExcelExporterIntegration:
             "Остатки",
             "Рейтинг",
             "Количество отзывов",
+            "Страна производства",
         ]
         assert headers == expected_headers
         assert ws.max_row == len(sample_products) + 1
