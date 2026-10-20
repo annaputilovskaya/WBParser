@@ -215,6 +215,9 @@ class ProductDetailParser(IDetailParser):
                     logger.exception(
                         "Неожиданная ошибка потока для артикула %s", source.article
                     )
+                    if source.article not in enriched_articles:
+                        enriched_articles.add(source.article)
+                        enriched_products.append(source)
                     failed_products.append(source)
                     continue
 

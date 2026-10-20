@@ -1,5 +1,6 @@
 """Юнит-тесты для парсера детальной информации о товарах."""
 
+from concurrent.futures import Future
 from unittest.mock import Mock
 
 import pytest
@@ -268,3 +269,16 @@ class TestProductDetailParser:
 
         assert [p.article for p in enriched] == [9]
         assert [p.article for p in failed] == [9]
+
+    def test_enrich_multiple_unexpected_thread_error_stays_in_enriched(
+        self, parser: ProductDetailParser, mock_client: Mock, mocker: MockerFixture
+    ) -> None:
+        """Неожиданная ошибка потока сохраняет товар и в enriched, и в failed."""
+        mock_client.get_product_details.return_value = {"description": "X"}
+        mocker.patch.object(Future, "result", side_effect=RuntimeError("thread boom"))
+        products = [Product(url="", article=11, name="Т", price=1.0)]
+
+        enriched, failed = parser.enrich_multiple(products)
+
+        assert [p.article for p in enriched] == [11]
+        assert [p.article for p in failed] == [11]
