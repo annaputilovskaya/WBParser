@@ -27,30 +27,37 @@ class TokenManager:
             Строка с токеном.
 
         Raises:
-            RuntimeError: Если не удалось получить токен после нескольких попыток.
+            RuntimeError: Если не удалось получить токен после
+                settings.token_max_retries попыток.
         """
+        ttl = settings.token_ttl_seconds
         # Быстрая проверка без блокировки
-        if self.token and self.last_updated and time.time() - self.last_updated < 3600:
+        if self.token and self.last_updated and time.time() - self.last_updated < ttl:
             return self.token
 
         with self._lock:
             if (
                 self.token
                 and self.last_updated
-                and time.time() - self.last_updated < 3600
+                and time.time() - self.last_updated < ttl
             ):
                 return self.token
             logger.info("Получение нового токена через Selenium (только один поток)...")
             ua = UserAgent().random
-            logger.debug(f"Запуск Selenium с User-Agent: {ua}")
-            driver = Driver(
-                uc=True,
-                headed=True,
-                agent=ua
-            )
+            logger.debug("Запуск Selenium с User-Agent: %s", ua)
+            driver_kwargs: dict[str, object] = {
+                "uc": True,
+                "headless": settings.token_headless,
+                "agent": ua,
+            }
+            if settings.token_no_sandbox:
+                driver_kwargs["no_sandbox"] = True
+                driver_kwargs["disable_dev_shm_usage"] = True
+            driver = Driver(**driver_kwargs)
             try:
+                driver.set_page_load_timeout(settings.token_timeout)
                 driver.open(settings.base_url)
-                for attempt in range(3):
+                for _attempt in range(settings.token_max_retries):
                     cookies = driver.execute_cdp_cmd(
                         "Network.getAllCookies", cmd_args={}
                     )
@@ -62,7 +69,11 @@ class TokenManager:
                                 self.last_updated = time.time()
                                 logger.info("Токен успешно получен")
                                 return token
-                    time.sleep(5)
-                raise RuntimeError("Не удалось получить токен после 3 попыток")
+                    if _attempt < settings.token_max_retries - 1:
+                        time.sleep(settings.token_retry_delay)
+                raise RuntimeError(
+                    f"Не удалось получить токен после "
+                    f"{settings.token_max_retries} попыток"
+                )
             finally:
                 driver.quit()

@@ -112,6 +112,35 @@ class AppSettings(BaseSettings):
         default=False,
         description="Отключать sandbox Chrome (требуется в контейнере).",
     )
+    # Получение токена (Selenium)
+    token_headless: bool = Field(
+        default=True,
+        description="Запуск Selenium в headless-режиме.",
+    )
+    token_timeout: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Таймаут загрузки страницы Selenium в секундах.",
+    )
+    token_ttl_seconds: int = Field(
+        default=3600,
+        ge=60,
+        le=86400,
+        description="Время жизни кешированного токена в секундах.",
+    )
+    token_max_retries: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Число попыток получения токена.",
+    )
+    token_retry_delay: float = Field(
+        default=5.0,
+        ge=0.0,
+        le=60.0,
+        description="Пауза между попытками получения токена в секундах.",
+    )
 
     # Папки вывода
     output_dir: str = Field(

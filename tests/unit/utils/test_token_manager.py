@@ -55,7 +55,14 @@ class TestTokenManager:
         mock_driver_class.assert_called_once()
         call_kwargs = mock_driver_class.call_args.kwargs
         assert call_kwargs["uc"] is True
-        assert call_kwargs["headed"] is True
+        assert call_kwargs["headless"] is True
+        assert "no_sandbox" not in call_kwargs
+        assert "disable_dev_shm_usage" not in call_kwargs
+        assert isinstance(call_kwargs["agent"], str)
+        assert call_kwargs["agent"]
+        mock_driver.set_page_load_timeout.assert_called_once_with(
+            settings.token_timeout
+        )
         mock_driver.open.assert_called_once_with(settings.base_url)
         mock_driver.execute_cdp_cmd.assert_called_once_with(
             "Network.getAllCookies", cmd_args={}
@@ -153,3 +160,48 @@ class TestTokenManager:
         mock_driver.execute_cdp_cmd.return_value = {}
         with pytest.raises(RuntimeError):
             token_manager.get_token()
+
+    def test_get_token_applies_no_sandbox_when_enabled(
+        self, token_manager: TokenManager, mocker: MockerFixture
+    ) -> None:
+        """При token_no_sandbox=True в Driver передаются sandbox-флаги."""
+        mocker.patch.object(settings, "token_no_sandbox", True)
+        mock_driver = mocker.Mock()
+        mock_driver_class = mocker.patch(
+            "src.utils.token_manager.Driver", return_value=mock_driver
+        )
+        mock_driver.execute_cdp_cmd.return_value = {
+            "cookies": [{"name": "x_wbaas_token", "value": "tok"}]
+        }
+        token_manager.get_token()
+        call_kwargs = mock_driver_class.call_args.kwargs
+        assert call_kwargs["no_sandbox"] is True
+        assert call_kwargs["disable_dev_shm_usage"] is True
+
+    def test_get_token_honours_retry_settings(
+        self, token_manager: TokenManager, mocker: MockerFixture
+    ) -> None:
+        """Число попыток и пауза берутся из настроек."""
+        mocker.patch.object(settings, "token_max_retries", 2)
+        mocker.patch.object(settings, "token_retry_delay", 0.01)
+        sleep_mock = mocker.patch("time.sleep")
+        mock_driver = mocker.Mock()
+        mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
+        mock_driver.execute_cdp_cmd.return_value = {"cookies": []}
+        with pytest.raises(
+            RuntimeError, match="Не удалось получить токен после 2 попыток"
+        ):
+            token_manager.get_token()
+        assert mock_driver.execute_cdp_cmd.call_count == 2
+        sleep_mock.assert_called_once_with(0.01)
+
+    def test_get_token_uses_ttl_setting(
+        self, token_manager: TokenManager, mocker: MockerFixture
+    ) -> None:
+        """Свежий токен возвращается из кэша в пределах token_ttl_seconds."""
+        mocker.patch.object(settings, "token_ttl_seconds", 100)
+        token_manager.token = "fresh"
+        token_manager.last_updated = time.time() - 50
+        mock_driver_class = mocker.patch("src.utils.token_manager.Driver")
+        assert token_manager.get_token() == "fresh"
+        mock_driver_class.assert_not_called()
