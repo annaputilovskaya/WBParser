@@ -300,7 +300,9 @@ class AppSettings(BaseSettings):
                     f"WB_RETRY_DELAYS: некорректный JSON: {exc.msg}"
                 ) from exc
             if not isinstance(parsed, list):
-                raise ValueError("WB_RETRY_DELAYS: ожидается JSON-массив, напр. [1,2,3]")
+                raise ValueError(
+                    "WB_RETRY_DELAYS: ожидается JSON-массив, напр. [1,2,3]"
+                )
             text = ",".join(str(item) for item in parsed)
         parts = [part.strip() for part in text.split(",") if part.strip()]
         try:
@@ -320,11 +322,13 @@ class AppSettings(BaseSettings):
             parsed = json.loads(v.strip())
         except json.JSONDecodeError as exc:
             raise ValueError(
-                "WB_SEARCH_API_PARAMS: ожидается JSON-объект, "
-                f"например {{\"lang\": \"ru\"}}"
+                'WB_SEARCH_API_PARAMS: ожидается JSON-объект, например {"lang": "ru"}'
             ) from exc
         if not isinstance(parsed, dict):
-            raise ValueError("WB_SEARCH_API_PARAMS: ожидается JSON-объект")
+            # pydantic-валидатор обязан бросать ValueError для ValidationError
+            raise ValueError(  # noqa: TRY004
+                "WB_SEARCH_API_PARAMS: ожидается JSON-объект"
+            )
         return parsed
 
     @field_validator("api_headers", mode="before")
@@ -340,7 +344,10 @@ class AppSettings(BaseSettings):
                 "WB_API_HEADERS: ожидается JSON-объект заголовков"
             ) from exc
         if not isinstance(parsed, dict):
-            raise ValueError("WB_API_HEADERS: ожидается JSON-объект заголовков")
+            # pydantic-валидатор обязан бросать ValueError для ValidationError
+            raise ValueError(  # noqa: TRY004
+                "WB_API_HEADERS: ожидается JSON-объект заголовков"
+            )
         return parsed
 
     @field_validator("default_base_ranges", mode="before")

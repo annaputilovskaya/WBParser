@@ -1,7 +1,6 @@
 """Юнит-тесты для модели данных Product."""
 
 import pytest
-
 from src.data_models.product import Product
 
 

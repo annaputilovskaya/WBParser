@@ -8,7 +8,6 @@ from unittest.mock import Mock, mock_open
 import pytest
 import requests
 from pytest_mock import MockerFixture
-
 from src.utils.url_service import BasketManager, UrlService
 
 
@@ -240,7 +239,7 @@ class TestUrlService:
         )
         url = UrlService.get_img_url(article=1234567, img_number=3)
         expected = (
-            "https://basket-05.wbbasket.ru/" "vol12/part1234/1234567/images/big/3.webp"
+            "https://basket-05.wbbasket.ru/vol12/part1234/1234567/images/big/3.webp"
         )
         assert url == expected
 
@@ -255,8 +254,7 @@ class TestUrlService:
         )
         url = UrlService.get_img_url(article=1234567, img_number=1, size="small")
         expected = (
-            "https://basket-05.wbbasket.ru/"
-            "vol12/part1234/1234567/images/small/1.webp"
+            "https://basket-05.wbbasket.ru/vol12/part1234/1234567/images/small/1.webp"
         )
         assert url == expected
 
@@ -271,7 +269,7 @@ class TestUrlService:
         )
         url = UrlService.get_img_url(article=1234567, img_number=5, size="tm")
         expected = (
-            "https://basket-05.wbbasket.ru/" "vol12/part1234/1234567/images/tm/5.webp"
+            "https://basket-05.wbbasket.ru/vol12/part1234/1234567/images/tm/5.webp"
         )
         assert url == expected
 
@@ -286,7 +284,7 @@ class TestUrlService:
         )
         url = UrlService.get_wb_card_url(article=1234567)
         expected = (
-            "https://basket-05.wbbasket.ru/" "vol12/part1234/1234567/info/ru/card.json"
+            "https://basket-05.wbbasket.ru/vol12/part1234/1234567/info/ru/card.json"
         )
         assert url == expected
 

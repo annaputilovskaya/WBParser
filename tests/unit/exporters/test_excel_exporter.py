@@ -5,7 +5,6 @@ from pathlib import Path
 import pytest
 from openpyxl import load_workbook
 from pytest_mock import MockerFixture
-
 from src.data_models.product import Product
 from src.exporters.excel_exporter import ExcelExporter
 
@@ -204,7 +203,7 @@ class TestExcelExporter:
             rating=4.7,
             country_of_origin="рОсСиЯ",  # смешанный регистр
         )
-        products = sample_products + [extra_product]
+        products = [*sample_products, extra_product]
         filtered = exporter._filter_products(
             products,
             min_rating=4.0,

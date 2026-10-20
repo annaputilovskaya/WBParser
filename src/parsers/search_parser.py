@@ -27,7 +27,9 @@ class SearchParser:
         detail_parser (ProductDetailParser): Парсер детальной информации.
     """
 
-    def __init__(self, client: IApiClient, base_ranges: list[tuple] = None):
+    def __init__(
+        self, client: IApiClient, base_ranges: list[tuple[int, int]] | None = None
+    ):
         """
         Инициализирует парсер с API клиентом и настройками диапазонов.
 
@@ -167,8 +169,8 @@ class SearchParser:
                 for item in batch:
                     try:
                         products_in_range.append(Product.from_api_search_data(item))
-                    except Exception as e:
-                        logger.error(f"Ошибка маппинга: {e}")
+                    except Exception:
+                        logger.exception("Ошибка маппинга.")
 
                 time.sleep(settings.page_delay)
 

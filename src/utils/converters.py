@@ -1,9 +1,7 @@
-from typing import Any, Type, TypeVar
-
-T = TypeVar("T", int, float, str)
+from typing import Any
 
 
-def safe_cast(val: Any, to_type: Type[T], default: T) -> T:
+def safe_cast[T: int | float | str](val: Any, to_type: type[T], default: T) -> T:
     """
     Безопасно приводит входное значение к заданному типу.
 

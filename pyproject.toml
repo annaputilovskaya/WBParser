@@ -24,15 +24,42 @@ build-backend = "poetry.core.masonry.api"
 
 [dependency-groups]
 dev = [
-    "black (>=26.3.1,<27.0.0)",
-    "isort (>=8.0.1,<9.0.0)",
-    "flake8 (>=7.3.0,<8.0.0)",
     "pytest (>=9.0.3,<10.0.0)",
     "pytest-cov (>=7.1.0,<8.0.0)",
-    "pytest-mock (>=3.15.1,<4.0.0)"
+    "pytest-mock (>=3.15.1,<4.0.0)",
+    "ruff (>=0.17.0,<1.0.0)"
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')"
 ]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["src"]
+extend-exclude = [".superpowers"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "RET", "PIE", "LOG", "TRY"]
+ignore = [
+    "E501",    # длинные строки (docstrings/URL) контролирует formatter
+    "TRY003",  # осознанные длинные сообщения исключений (валидация env)
+    "TRY300",  # return внутри try — не раздуваем обработку HTTP-запросов
+    "RUF001",  # неоднозначные символы: проект русскоязычный (кириллица в строках)
+    "RUF002",  # неоднозначные символы: русские docstrings
+    "RUF003",  # неоднозначные символы: русские комментарии
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["SIM117"]
+
+[tool.coverage.run]
+source = ["src"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true

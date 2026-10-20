@@ -61,7 +61,7 @@ class BasketManager:
             cls._update_config()
 
         try:
-            with open(cls.FILE_PATH, "r", encoding="utf-8") as f:
+            with open(cls.FILE_PATH, encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return {}
@@ -75,8 +75,8 @@ class BasketManager:
             with open(cls.FILE_PATH, "w", encoding="utf-8") as f:
                 json.dump(response.json(), f, ensure_ascii=False, indent=2)
             logger.info("Конфигурация корзин успешно обновлена")
-        except Exception as e:
-            logger.error("Ошибка при обновлении конфигурации корзин: %s", e)
+        except Exception:
+            logger.exception("Ошибка при обновлении конфигурации корзин.")
 
 
 class UrlService:

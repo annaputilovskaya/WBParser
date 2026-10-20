@@ -4,7 +4,6 @@ from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
-
 from src.config.app_settings import AppSettings
 
 
@@ -62,9 +61,7 @@ class TestDefaultBaseRanges:
 
     def test_semicolon_format(self) -> None:
         """Формат «0-5000;5001-10000» парсится в кортежи."""
-        settings = AppSettings(
-            _env_file=None, default_base_ranges="0-5000;5001-10000"
-        )
+        settings = AppSettings(_env_file=None, default_base_ranges="0-5000;5001-10000")
         assert settings.default_base_ranges == [(0, 5000), (5001, 10000)]
 
     def test_json_format(self) -> None:

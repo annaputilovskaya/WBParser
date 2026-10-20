@@ -1,10 +1,10 @@
 """Интеграционные тесты для парсера поиска с API клиентом."""
 
-from typing import Any, Generator
+from collections.abc import Generator
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
-
 from src.data_models.product import Product
 from src.parsers.api_client import WbApiClient
 from src.parsers.search_parser import SearchParser
@@ -125,12 +125,12 @@ class TestSearchParserIntegration:
         all_params = [
             call.kwargs.get("params", {}) for call in mock_session.get.call_args_list
         ]
-        assert any(
-            p.get("priceU") == "0;500000" for p in all_params
-        ), f"Не найден запрос для нижнего диапазона (0;500000). В запросах было: {[p.get('priceU') for p in all_params]}"
-        assert any(
-            p.get("priceU") == "500100;1000000" for p in all_params
-        ), f"Не найден запрос для верхнего диапазона (500100;1000000). В запросах было: {[p.get('priceU') for p in all_params]}"
+        assert any(p.get("priceU") == "0;500000" for p in all_params), (
+            f"Не найден запрос для нижнего диапазона (0;500000). В запросах было: {[p.get('priceU') for p in all_params]}"
+        )
+        assert any(p.get("priceU") == "500100;1000000" for p in all_params), (
+            f"Не найден запрос для верхнего диапазона (500100;1000000). В запросах было: {[p.get('priceU') for p in all_params]}"
+        )
 
     def test_parse_with_enrichment_integration(
         self, search_parser: SearchParser, api_client: WbApiClient, mock_session: Mock

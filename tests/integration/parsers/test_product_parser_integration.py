@@ -3,7 +3,6 @@
 from unittest.mock import Mock, patch
 
 import pytest
-
 from src.data_models.product import Product
 from src.parsers.api_client import WbApiClient
 from src.parsers.product_parser import ProductDetailParser

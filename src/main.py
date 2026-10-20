@@ -32,7 +32,7 @@ def main():
 
         if not products_data:
             logger.warning("Товары не найдены или произошла ошибка при парсинге.")
-            return None
+            return
 
         logger.info(f"Итого собрано товаров: {len(products_data)}")
 

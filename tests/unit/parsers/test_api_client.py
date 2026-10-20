@@ -6,7 +6,6 @@ from unittest.mock import Mock
 import pytest
 import requests
 from pytest_mock import MockerFixture
-
 from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
 

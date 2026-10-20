@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from typing import ClassVar
 
 from openpyxl import Workbook
 
@@ -15,7 +16,7 @@ class ExcelExporter:
     """Класс для экспорта списка товаров в Excel-файлы с использованием openpyxl."""
 
     # Порядок и названия колонок в выходном файле
-    HEADERS_MAP = {
+    HEADERS_MAP: ClassVar[dict[str, str]] = {
         "url": "Ссылка на товар",
         "article": "Артикул",
         "name": "Название",
@@ -61,13 +62,13 @@ class ExcelExporter:
             )
             return filepath
         except PermissionError:
-            logger.error(
+            logger.exception(
                 "Не удалось сохранить %s: файл %s открыт в другой программе.",
                 log_label,
                 filename,
             )
-        except Exception as e:
-            logger.exception("Критическая ошибка при сохранении %s: %s", log_label, e)
+        except Exception:
+            logger.exception("Критическая ошибка при сохранении %s.", log_label)
 
         return None
 
@@ -131,7 +132,7 @@ class ExcelExporter:
         ws.freeze_panes = "A2"
 
         for row_dict in rows:
-            row_data = [row_dict.get(key, "") for key in self.HEADERS_MAP.keys()]
+            row_data = [row_dict.get(key, "") for key in self.HEADERS_MAP]
             ws.append(row_data)
 
         # Автонастройка ширины колонок

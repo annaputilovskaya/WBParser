@@ -4,7 +4,6 @@ from unittest.mock import Mock
 
 import pytest
 from pytest_mock import MockerFixture
-
 from src.data_models.product import Product
 from src.parsers.search_parser import SearchParser
 
