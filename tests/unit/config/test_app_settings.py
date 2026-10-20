@@ -130,3 +130,5 @@ class TestDefaultsAndEnvExample:
         assert settings.cache_dir == "data/cache"
         assert settings.retry_delays == [1.0, 2.0, 3.0]
         assert settings.token_no_sandbox is False
+        assert settings.token_headless is True
+        assert settings.token_timeout == 30

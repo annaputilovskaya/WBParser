@@ -1,0 +1,21 @@
+services:
+  wbparser:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: wbparser
+    profiles: ["batch"]
+    restart: "no"
+    env_file:
+      - .env
+    environment:
+      PYTHONUNBUFFERED: "1"
+      SB_HEADLESS: "True"
+      WB_OUTPUT_DIR: /app/data/output
+      WB_LOGS_DIR: /app/data/logs
+      WB_CACHE_DIR: /app/data/cache
+      WB_TOKEN_NO_SANDBOX: "true"
+    volumes:
+      - ./data/output:/app/data/output
+      - ./data/logs:/app/data/logs
+      - ./data/cache:/app/data/cache
