@@ -67,6 +67,7 @@ class Product:
             "stock": self.stock,
             "rating": self.rating,
             "review_count": self.review_count,
+            "country_of_origin": self.country_of_origin,
         }
 
     @classmethod
@@ -106,6 +107,7 @@ class Product:
             stock=stock,
             rating=rating,
             review_count=review_count,
+            country_of_origin=data.get("country_of_origin") or "",
         )
 
     @classmethod

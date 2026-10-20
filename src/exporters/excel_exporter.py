@@ -32,6 +32,7 @@ class ExcelExporter:
         "stock": "Остатки",
         "rating": "Рейтинг",
         "review_count": "Количество отзывов",
+        "country_of_origin": "Страна производства",
     }
 
     def __init__(self, output_dir: str | Path | None = None) -> None:

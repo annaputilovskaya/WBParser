@@ -186,6 +186,7 @@ class TestProduct:
         assert result["stock"] == 3
         assert result["rating"] == 4.7
         assert result["review_count"] == 25
+        assert result["country_of_origin"] == ""
 
     @pytest.mark.parametrize(
         "input_dict, expected_article, expected_price, expected_characteristics",
@@ -258,3 +259,15 @@ class TestProduct:
         assert product.stock == 0
         assert product.rating == 0.0
         assert product.review_count == 0
+
+    def test_dict_round_trip_preserves_country(self) -> None:
+        """country_of_origin переживает полный цикл to_dict → from_dict."""
+        product = Product(
+            url="https://example.com",
+            article=42,
+            name="Товар",
+            price=1.0,
+            country_of_origin="Россия",
+        )
+        restored = Product.from_dict(product.to_dict())
+        assert restored.country_of_origin == "Россия"

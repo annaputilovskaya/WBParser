@@ -302,6 +302,7 @@ class TestExcelExporter:
             sample_products[0].stock,
             sample_products[0].rating,
             sample_products[0].review_count,
+            sample_products[0].country_of_origin,
         ]
         assert row_data == expected_values
 
