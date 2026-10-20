@@ -11,6 +11,8 @@ from src.data_models.product import Product
 
 logger = logging.getLogger(__name__)
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@")
+
 
 class ExcelExporter:
     """Класс для экспорта списка товаров в Excel-файлы с использованием openpyxl."""
@@ -120,6 +122,27 @@ class ExcelExporter:
         filtered = self._filter_products(products, rating, price, country)
         return self._export_to_file(filtered, target, "Отфильтрованный каталог")
 
+    @staticmethod
+    def _sanitize_cell(value: object) -> object:
+        """Защищает Excel от formula injection.
+
+        Строки, начинающиеся (после пробелов/табов) с =, +, -, @,
+        записываются как текст: перед значением добавляется апостроф.
+        Переносы строк нормализуются в пробел. Не-строки не меняются.
+
+        Args:
+            value: Значение ячейки.
+
+        Returns:
+            Значение, безопасное для записи в Excel.
+        """
+        if not isinstance(value, str):
+            return value
+        text = value.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+        if text.lstrip(" \t").startswith(_FORMULA_PREFIXES):
+            return "'" + text
+        return text
+
     def _save_to_excel(self, rows: list[dict], filepath: Path) -> None:
         """Сохраняет список словарей в файл Excel с базовым форматированием.
 
@@ -141,7 +164,9 @@ class ExcelExporter:
         ws.freeze_panes = "A2"
 
         for row_dict in rows:
-            row_data = [row_dict.get(key, "") for key in self.HEADERS_MAP]
+            row_data = [
+                self._sanitize_cell(row_dict.get(key, "")) for key in self.HEADERS_MAP
+            ]
             ws.append(row_data)
 
         # Автонастройка ширины колонок
