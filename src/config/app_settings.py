@@ -21,10 +21,10 @@
 
 import json
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class AppSettings(BaseSettings):
@@ -49,7 +49,7 @@ class AppSettings(BaseSettings):
     )
 
     # Заголовки для имитации браузера (будут динамически обновляться через fake-useragent)
-    api_headers: dict = Field(
+    api_headers: Annotated[dict[str, str], NoDecode] = Field(
         default_factory=lambda: {
             "accept": "*/*",
             "accept-language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
@@ -100,7 +100,7 @@ class AppSettings(BaseSettings):
         le=10,
         description="Максимальное количество повторных попыток при ошибках.",
     )
-    retry_delays: list[float] = Field(
+    retry_delays: Annotated[list[float], NoDecode] = Field(
         default_factory=lambda: [1.0, 2.0, 3.0],
         description="Список задержек между повторными попытками в секундах.",
     )
@@ -108,11 +108,19 @@ class AppSettings(BaseSettings):
         default="x_wbaas_token",
         description="Имя cookie, содержащего авторизационный токен.",
     )
+    token_no_sandbox: bool = Field(
+        default=False,
+        description="Отключать sandbox Chrome (требуется в контейнере).",
+    )
 
     # Папки вывода
     output_dir: str = Field(
         default="output",
         description="Директория для сохранения экспортированных файлов.",
+    )
+    cache_dir: str = Field(
+        default="data/cache",
+        description="Директория для кэша (baskets.json и драйверы Selenium).",
     )
     full_catalog_filename: str = Field(
         default="full_catalog.xlsx",
@@ -185,7 +193,7 @@ class AppSettings(BaseSettings):
     )
 
     # Параметры поискового API
-    search_api_params: dict = Field(
+    search_api_params: Annotated[dict[str, Any], NoDecode] = Field(
         default_factory=lambda: {
             "ab_testing": ["false", "false"],
             "appType": "1",
@@ -209,7 +217,7 @@ class AppSettings(BaseSettings):
         le=10000,
         description="Максимальное количество товаров, получаемых за один запрос.",
     )
-    default_base_ranges: list[tuple[int, int]] = Field(
+    default_base_ranges: Annotated[list[tuple[int, int]], NoDecode] = Field(
         default_factory=lambda: [
             (0, 5000),
             (5001, 10000),
@@ -227,7 +235,7 @@ class AppSettings(BaseSettings):
     )
 
     # Прокси
-    proxy_pool: list[str] = Field(
+    proxy_pool: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
         description="Список прокси в формате 'http://user:pass@host:port,http://...'.",
     )
@@ -248,50 +256,104 @@ class AppSettings(BaseSettings):
 
     @field_validator("retry_delays", mode="before")
     @classmethod
-    def parse_retry_delays(cls, v):
-        """Парсит строку с задержками в список чисел."""
-        if isinstance(v, str):
+    def parse_retry_delays(cls, v: object) -> object:
+        """Парсит строку задержек: CSV «1,2,3» или JSON «[1,2,3]»."""
+        if not isinstance(v, str):
+            return v
+        text = v.strip()
+        if not text:
+            return []
+        if text.startswith("["):
             try:
-                return [float(item.strip()) for item in v.split(",")]
-            except ValueError:
-                pass
-        return v
+                parsed = json.loads(text)
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"WB_RETRY_DELAYS: некорректный JSON: {exc.msg}"
+                ) from exc
+            if not isinstance(parsed, list):
+                raise ValueError("WB_RETRY_DELAYS: ожидается JSON-массив, напр. [1,2,3]")
+            text = ",".join(str(item) for item in parsed)
+        parts = [part.strip() for part in text.split(",") if part.strip()]
+        try:
+            return [float(part) for part in parts]
+        except ValueError as exc:
+            raise ValueError(
+                f"WB_RETRY_DELAYS: нечисловое значение в списке: {v!r}"
+            ) from exc
 
     @field_validator("search_api_params", mode="before")
     @classmethod
-    def parse_search_api_params(cls, v):
-        """Парсит JSON-строку в словарь."""
-        if isinstance(v, str):
-            try:
-                return json.loads(v)
-            except json.JSONDecodeError:
-                pass
-        return v
+    def parse_search_api_params(cls, v: object) -> object:
+        """Парсит JSON-строку WB_SEARCH_API_PARAMS в словарь."""
+        if not isinstance(v, str):
+            return v
+        try:
+            parsed = json.loads(v.strip())
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "WB_SEARCH_API_PARAMS: ожидается JSON-объект, "
+                f"например {{\"lang\": \"ru\"}}"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("WB_SEARCH_API_PARAMS: ожидается JSON-объект")
+        return parsed
+
+    @field_validator("api_headers", mode="before")
+    @classmethod
+    def parse_api_headers(cls, v: object) -> object:
+        """Парсит JSON-строку WB_API_HEADERS в словарь заголовков."""
+        if not isinstance(v, str):
+            return v
+        try:
+            parsed = json.loads(v.strip())
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "WB_API_HEADERS: ожидается JSON-объект заголовков"
+            ) from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("WB_API_HEADERS: ожидается JSON-объект заголовков")
+        return parsed
 
     @field_validator("default_base_ranges", mode="before")
     @classmethod
-    def parse_default_base_ranges(cls, v):
-        """Парсит строку диапазонов в список кортежей."""
-        if isinstance(v, str):
+    def parse_default_base_ranges(cls, v: object) -> object:
+        """Парсит строки диапазонов: «0-5000;5001-10000» или JSON «[[0,5000]]»."""
+        if not isinstance(v, str):
+            return v
+        text = v.strip()
+        if text.startswith("["):
             try:
-                ranges = []
-                for part in v.split(";"):
-                    if not part.strip():
-                        continue
-                    left, right = part.split("-")
-                    ranges.append((int(left.strip()), int(right.strip())))
-                return ranges
-            except (ValueError, AttributeError):
-                pass
-        return v
+                parsed = json.loads(text)
+                return [(int(a), int(b)) for a, b in parsed]
+            except (json.JSONDecodeError, TypeError, ValueError) as exc:
+                raise ValueError(
+                    "WB_DEFAULT_BASE_RANGES: некорректный JSON-массив пар, "
+                    "ожидается [[0,5000],[5001,10000]]"
+                ) from exc
+        ranges: list[tuple[int, int]] = []
+        for part in text.split(";"):
+            part = part.strip()
+            if not part:
+                continue
+            try:
+                left, right = part.split("-")
+                ranges.append((int(left.strip()), int(right.strip())))
+            except ValueError as exc:
+                raise ValueError(
+                    f"WB_DEFAULT_BASE_RANGES: некорректный диапазон {part!r}; "
+                    "формат «0-5000;5001-10000»"
+                ) from exc
+        if not ranges:
+            raise ValueError("WB_DEFAULT_BASE_RANGES: список диапазонов пуст")
+        return ranges
 
     @field_validator("proxy_pool", mode="before")
     @classmethod
-    def parse_proxy_pool(cls, v):
-        """Парсит строку прокси в список URL."""
-        if isinstance(v, str):
-            return [p.strip() for p in v.split(",") if p.strip()]
-        return v
+    def parse_proxy_pool(cls, v: object) -> object:
+        """Парсит CSV-строку прокси в список URL (пустая строка → пустой список)."""
+        if not isinstance(v, str):
+            return v
+        return [p.strip() for p in v.split(",") if p.strip()]
 
     def ensure_output_dir(self) -> Path:
         """Создаёт директорию для вывода, если её нет, и возвращает Path."""
@@ -302,6 +364,12 @@ class AppSettings(BaseSettings):
     def ensure_logs_dir(self) -> Path:
         """Создаёт директорию для логов, если её нет, и возвращает Path."""
         path = Path(self.logs_dir)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def ensure_cache_dir(self) -> Path:
+        """Создаёт директорию кэша, если её нет, и возвращает Path."""
+        path = Path(self.cache_dir)
         path.mkdir(parents=True, exist_ok=True)
         return path
 
