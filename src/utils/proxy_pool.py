@@ -9,8 +9,9 @@ Credentials прокси никогда не попадают в логи: дл�
 """
 
 import logging
+import re
 import time
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import urlsplit
 
 import requests
 
@@ -18,23 +19,53 @@ from src.config.app_settings import settings
 
 logger = logging.getLogger(__name__)
 
+_SCHEME_PATTERN = re.compile(r"^(?P<scheme>[A-Za-z][A-Za-z0-9+.\-]*)://")
+_MASKED_CREDENTIALS = "***"
+
 
 def mask_proxy_url(proxy: str | None) -> str:
     """Маскирует логин и пароль в URL прокси.
+
+    Credentials маскируются независимо от наличия схемы (``http://``) и
+    независимо от позиции символа ``@``. Некорректный URL не приводит
+    к исключению — возвращается безопасная заглушка.
 
     Args:
         proxy (str | None): URL прокси или None.
 
     Returns:
-        str: URL с заменой credentials на *** или пустая строка.
+        str: URL с заменой credentials на ``***``, исходная строка, если
+            credentials отсутствуют, пустая строка для None/пустого значения
+            или ``***`` для некорректного URL.
     """
     if not proxy:
         return ""
-    parts = urlsplit(proxy)
-    if "@" not in parts.netloc:
-        return proxy
-    host = parts.netloc.rsplit("@", 1)[1]
-    return urlunsplit((parts.scheme, f"***@{host}", parts.path, "", ""))
+
+    scheme_match = _SCHEME_PATTERN.match(proxy)
+    scheme = scheme_match.group("scheme") if scheme_match else ""
+    remainder = proxy[scheme_match.end() :] if scheme_match else proxy
+
+    authority_end = len(remainder)
+    for delimiter in ("/", "?", "#"):
+        position = remainder.find(delimiter)
+        if position != -1:
+            authority_end = min(authority_end, position)
+
+    authority = remainder[:authority_end]
+    if "@" not in authority:
+        masked = proxy
+    else:
+        host = authority.rsplit("@", 1)[1]
+        tail = remainder[authority_end:]
+        path = tail.split("?", 1)[0].split("#", 1)[0]
+        prefix = f"{scheme}://" if scheme else ""
+        masked = f"{prefix}{_MASKED_CREDENTIALS}@{host}{path}"
+
+    try:
+        urlsplit(masked)
+    except ValueError:
+        return _MASKED_CREDENTIALS
+    return masked
 
 
 class ProxyPool:
@@ -73,7 +104,7 @@ class ProxyPool:
         if health_check_enabled is None:
             health_check_enabled = settings.proxy_health_check
 
-        self.proxies: list[str] = proxies if proxies else []
+        self.proxies: list[str] = list(proxies) if proxies else []
         self.current_index = 0
         self.last_used = 0.0
         self.health_check_enabled = health_check_enabled
@@ -158,7 +189,11 @@ class ProxyPool:
             )
             return response.status_code == 200
         except requests.exceptions.RequestException as e:
-            logger.debug("Прокси %s недоступен: %s", mask_proxy_url(proxy), e)
+            logger.debug(
+                "Прокси %s недоступен: %s",
+                mask_proxy_url(proxy),
+                type(e).__name__,
+            )
             return False
 
     def add_proxy(self, proxy: str) -> None:

@@ -25,6 +25,25 @@ class TestMaskProxyUrl:
         assert mask_proxy_url(None) == ""
         assert mask_proxy_url("") == ""
 
+    def test_masks_scheme_less_url_with_credentials(self) -> None:
+        """Прокси без схемы тоже маскирует credentials."""
+        masked = mask_proxy_url("user:pass@host:8080")
+        assert masked.endswith("@host:8080")
+        assert "pass" not in masked
+        assert "user" not in masked
+
+    def test_does_not_raise_on_malformed_url(self) -> None:
+        """Некорректный URL не приводит к исключению."""
+        masked = mask_proxy_url("http://[invalid")
+        assert isinstance(masked, str)
+        assert masked
+
+    def test_masks_credentials_in_malformed_url(self) -> None:
+        """Даже в некорректном URL credentials не попадают в результат."""
+        masked = mask_proxy_url("http://user:secret@[invalid")
+        assert "secret" not in masked
+        assert "user" not in masked
+
 
 class TestProxyPool:
     """Тесты класса ProxyPool."""
@@ -59,6 +78,19 @@ class TestProxyPool:
         assert pool.rotate() == "http://u2:p2@h2:2"
         assert pool.rotate() == "http://u1:p1@h1:1"
 
+    def test_rotate_on_empty_pool_returns_none(self) -> None:
+        """rotate() на пустом пуле возвращает None."""
+        pool = ProxyPool(proxies=[])
+        assert pool.rotate() is None
+
+    def test_pool_does_not_mutate_settings_pool(self, mocker: MockerFixture) -> None:
+        """Пул не изменяет глобальный список settings.proxy_pool."""
+        mocker.patch.object(settings, "proxy_pool", ["http://host:1"])
+        pool = ProxyPool()
+        pool.add_proxy("http://other:2")
+        assert settings.proxy_pool == ["http://host:1"]
+        assert pool.get_proxies_count() == 2
+
     def test_logs_do_not_leak_credentials(
         self, pool: ProxyPool, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -80,3 +112,22 @@ class TestProxyPool:
         mocker.patch("requests.get", side_effect=requests.exceptions.Timeout("timeout"))
         assert pool._is_proxy_alive("http://h:1") is False
         requests.get.assert_called_once()
+
+    def test_is_proxy_alive_does_not_leak_credentials(
+        self,
+        pool: ProxyPool,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Текст исключения health-check не раскрывает credentials прокси."""
+        mocker.patch(
+            "requests.get",
+            side_effect=requests.exceptions.InvalidURL(
+                "Failed to parse: http://user:secret@host:abc"
+            ),
+        )
+        with caplog.at_level(logging.DEBUG):
+            assert pool._is_proxy_alive("http://user:secret@host:abc") is False
+
+        assert "secret" not in caplog.text
+        assert "user:secret" not in caplog.text
