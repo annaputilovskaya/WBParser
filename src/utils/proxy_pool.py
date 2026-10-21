@@ -3,10 +3,14 @@
 
 Класс ProxyPool обеспечивает ротацию прокси, проверку их работоспособности
 и выбор следующего доступного прокси для запросов.
+
+Credentials прокси никогда не попадают в логи: для этого используется
+функция mask_proxy_url.
 """
 
 import logging
 import time
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 
@@ -15,12 +19,30 @@ from src.config.app_settings import settings
 logger = logging.getLogger(__name__)
 
 
+def mask_proxy_url(proxy: str | None) -> str:
+    """Маскирует логин и пароль в URL прокси.
+
+    Args:
+        proxy (str | None): URL прокси или None.
+
+    Returns:
+        str: URL с заменой credentials на *** или пустая строка.
+    """
+    if not proxy:
+        return ""
+    parts = urlsplit(proxy)
+    if "@" not in parts.netloc:
+        return proxy
+    host = parts.netloc.rsplit("@", 1)[1]
+    return urlunsplit((parts.scheme, f"***@{host}", parts.path, "", ""))
+
+
 class ProxyPool:
     """
     Пул прокси для ротации и управления HTTP-прокси.
 
     Attributes:
-        proxies (List[str]): Список URL прокси в формате
+        proxies (list[str]): Список URL прокси в формате
             'http://user:pass@host:port'.
         current_index (int): Индекс текущего используемого прокси в списке.
         last_used (float): Время последнего использования текущего прокси.
@@ -33,35 +55,29 @@ class ProxyPool:
     def __init__(
         self,
         proxies: list[str] | None = None,
-        health_check_enabled: bool = True,
+        health_check_enabled: bool | None = None,
         health_check_timeout: int = 5,
-    ):
+    ) -> None:
         """
         Инициализирует пул прокси.
 
         Args:
-            proxies: Список строк прокси. Если None,
+            proxies (list[str] | None): Список строк прокси. Если None,
                 берётся из settings.proxy_pool.
-            health_check_enabled: Включить проверку работоспособности прокси.
-            health_check_timeout: Таймаут проверки работоспособности
-                в секундах.
+            health_check_enabled (bool | None): Проверка работоспособности.
+                Если None — берётся из settings.proxy_health_check.
+            health_check_timeout (int): Таймаут проверки в секундах.
         """
         if proxies is None:
             proxies = settings.proxy_pool
+        if health_check_enabled is None:
+            health_check_enabled = settings.proxy_health_check
 
         self.proxies: list[str] = proxies if proxies else []
         self.current_index = 0
         self.last_used = 0.0
         self.health_check_enabled = health_check_enabled
         self.health_check_timeout = health_check_timeout
-
-        if self.proxies:
-            logger.info(
-                "Инициализирован пул прокси: %d прокси загружено.",
-                len(self.proxies),
-            )
-        else:
-            logger.warning("Пул прокси пуст. Запросы будут выполняться без прокси.")
 
     def get_next_proxy(self) -> str | None:
         """
@@ -85,7 +101,7 @@ class ProxyPool:
         proxy = self.proxies[self.current_index]
 
         if self.health_check_enabled and not self._is_proxy_alive(proxy):
-            logger.warning("Прокси %s недоступен, ротируем.", proxy)
+            logger.warning("Прокси %s недоступен, ротируем.", mask_proxy_url(proxy))
             self._rotate()
             proxy = self.proxies[self.current_index]
 
@@ -105,9 +121,21 @@ class ProxyPool:
         self.current_index = (self.current_index + 1) % len(self.proxies)
         logger.debug(
             "Ротация прокси: теперь используется %s (индекс %d)",
-            self.proxies[self.current_index],
+            mask_proxy_url(self.proxies[self.current_index]),
             self.current_index,
         )
+
+    def rotate(self) -> str | None:
+        """Принудительно переключает прокси и возвращает новый.
+
+        Returns:
+            str | None: URL нового прокси или None, если пул пуст.
+        """
+        if not self.proxies:
+            return None
+        self._rotate()
+        self.last_used = time.time()
+        return self.get_current_proxy()
 
     def _is_proxy_alive(self, proxy: str) -> bool:
         """
@@ -129,8 +157,8 @@ class ProxyPool:
                 timeout=self.health_check_timeout,
             )
             return response.status_code == 200
-        except Exception as e:
-            logger.debug("Прокси %s недоступен: %s", proxy, e)
+        except requests.exceptions.RequestException as e:
+            logger.debug("Прокси %s недоступен: %s", mask_proxy_url(proxy), e)
             return False
 
     def add_proxy(self, proxy: str) -> None:
@@ -144,11 +172,11 @@ class ProxyPool:
             self.proxies.append(proxy)
             logger.info(
                 "Добавлен прокси: %s. Всего прокси: %d",
-                proxy,
+                mask_proxy_url(proxy),
                 len(self.proxies),
             )
         else:
-            logger.debug("Прокси %s уже присутствует в пуле.", proxy)
+            logger.debug("Прокси %s уже присутствует в пуле.", mask_proxy_url(proxy))
 
     def remove_proxy(self, proxy: str) -> None:
         """
@@ -161,14 +189,14 @@ class ProxyPool:
             self.proxies.remove(proxy)
             logger.info(
                 "Удалён прокси: %s. Осталось прокси: %d",
-                proxy,
+                mask_proxy_url(proxy),
                 len(self.proxies),
             )
             # Корректируем индекс, если удалённый прокси был текущим
             if self.current_index >= len(self.proxies):
                 self.current_index = 0
         else:
-            logger.warning("Прокси %s не найден в пуле.", proxy)
+            logger.warning("Прокси %s не найден в пуле.", mask_proxy_url(proxy))
 
     def get_current_proxy(self) -> str | None:
         """
