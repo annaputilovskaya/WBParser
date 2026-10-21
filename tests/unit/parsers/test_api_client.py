@@ -8,6 +8,7 @@ import requests
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
+from src.utils.token_manager import TokenFetchError
 
 
 class TestIApiClient:
@@ -41,6 +42,22 @@ class TestWbApiClient:
         )
         mocker.patch("time.sleep", return_value=None)
         client = WbApiClient()
+        client.session = mocker.Mock()
+        return client
+
+    @pytest.fixture
+    def api_client_with_proxy(
+        self, mocker: MockerFixture, mock_token_manager: Mock
+    ) -> WbApiClient:
+        """Клиент с замоканным пулом прокси."""
+        mocker.patch(
+            "src.parsers.api_client.TokenManager", return_value=mock_token_manager
+        )
+        mocker.patch("time.sleep", return_value=None)
+        proxy_pool = mocker.Mock()
+        proxy_pool.get_next_proxy.return_value = "http://proxy1:1"
+        proxy_pool.rotate.return_value = "http://proxy2:2"
+        client = WbApiClient(proxy_pool=proxy_pool)
         client.session = mocker.Mock()
         return client
 
@@ -199,3 +216,68 @@ class TestWbApiClient:
         mock_make_request.return_value = None
         result = api_client.get_product_details(1234567)
         assert result is None
+
+    def test_make_request_uses_proxy(
+        self, api_client_with_proxy: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Прокси из пула передаётся в HTTP-запрос."""
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"ok": True}
+        api_client_with_proxy.session.get.return_value = mock_response
+
+        api_client_with_proxy._make_request("https://example.com", {})
+
+        kwargs = api_client_with_proxy.session.get.call_args.kwargs
+        assert kwargs["proxies"] == {
+            "http": "http://proxy1:1",
+            "https": "http://proxy1:1",
+        }
+
+    def test_make_request_rotates_proxy_on_network_error(
+        self, api_client_with_proxy: WbApiClient
+    ) -> None:
+        """При сетевой ошибке прокси ротируется и повторяет запрос."""
+        api_client_with_proxy.session.get.side_effect = (
+            requests.exceptions.RequestException("network")
+        )
+
+        result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        assert api_client_with_proxy.proxy_pool.rotate.call_count == (
+            settings.max_retries + 1
+        )
+        last_kwargs = api_client_with_proxy.session.get.call_args.kwargs
+        assert last_kwargs["proxies"] == {
+            "http": "http://proxy2:2",
+            "https": "http://proxy2:2",
+        }
+
+    def test_search_products_rotates_user_agent(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """UA обновляется при каждом запросе страницы."""
+        mocker.patch.object(api_client, "_update_user_agent_header")
+        mocker.patch.object(
+            api_client,
+            "_make_request",
+            return_value={"products": [{"id": 1}, {"id": 2}]},
+        )
+
+        api_client.search_products("тест", page=1)
+
+        api_client._update_user_agent_header.assert_called_once()
+
+    def test_search_products_handles_token_fetch_error(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Ошибка получения токена не роняет парсинг: ретраи, затем None."""
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=TokenFetchError("нет токена")
+        )
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        assert api_client._make_request.call_count == settings.max_retries + 1

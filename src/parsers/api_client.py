@@ -10,7 +10,8 @@ import requests
 from fake_useragent import UserAgent
 
 from src.config.app_settings import settings
-from src.utils.token_manager import TokenManager
+from src.utils.proxy_pool import ProxyPool
+from src.utils.token_manager import TokenFetchError, TokenManager
 from src.utils.url_service import UrlService
 
 logger = logging.getLogger(__name__)
@@ -63,18 +64,25 @@ class WbApiClient(IApiClient):
     Attributes:
         token_manager (TokenManager): Менеджер для получения и обновления авторизационных токенов.
         session (requests.Session): Сессия с предустановленными заголовками для выполнения HTTP-запросов.
+        proxy_pool (ProxyPool | None): Пул прокси для ротации. Если None —
+            запросы выполняются без прокси.
     """
 
-    def __init__(self):
+    def __init__(self, proxy_pool: ProxyPool | None = None) -> None:
         """
         Инициализирует клиент, настраивает менеджер токенов и HTTP-сессию.
 
         Устанавливает базовые заголовки (User-Agent, Accept и др.) из настроек
         приложения для имитации запросов реального пользователя.
+
+        Args:
+            proxy_pool (ProxyPool | None): Пул прокси для ротации.
+                Если None — запросы идут без прокси.
         """
         self.token_manager = TokenManager()
         self.session = requests.Session()
         self.session.headers.update(settings.api_headers)
+        self.proxy_pool = proxy_pool
 
         # Инициализация UserAgent для ротации заголовков
         self.user_agent = None
@@ -125,6 +133,37 @@ class WbApiClient(IApiClient):
         delay = (base**attempt) * random_factor
         return min(delay, max_delay)
 
+    def _get_proxies(self) -> dict[str, str] | None:
+        """Возвращает словарь прокси для requests или None, если пул пуст."""
+        if self.proxy_pool is None:
+            return None
+        proxy = self.proxy_pool.get_next_proxy()
+        if not proxy:
+            return None
+        return {"http": proxy, "https": proxy}
+
+    def _rotate_proxy(self, error: Exception, url: str) -> dict[str, str] | None:
+        """Ротирует прокси после ошибки запроса.
+
+        Args:
+            error (Exception): Ошибка, вызвавшая ротацию.
+            url (str): URL запроса (только для лога).
+
+        Returns:
+            dict[str, str] | None: Прокси для нового запроса или None.
+        """
+        if self.proxy_pool is None:
+            return None
+        logger.warning(
+            "Ошибка запроса (%s) к %s — ротация прокси",
+            type(error).__name__,
+            url,
+        )
+        proxy = self.proxy_pool.rotate()
+        if not proxy:
+            return None
+        return {"http": proxy, "https": proxy}
+
     def _make_request(
         self, url: str, params: dict, max_retries: int | None = None
     ) -> dict | None:
@@ -143,6 +182,7 @@ class WbApiClient(IApiClient):
             max_retries = settings.max_retries
 
         cookies = {settings.token_cookie_name: self._get_token()}
+        proxies = self._get_proxies()
 
         for attempt in range(max_retries + 1):
             try:
@@ -151,6 +191,7 @@ class WbApiClient(IApiClient):
                     params=params,
                     cookies=cookies,
                     timeout=settings.request_timeout,
+                    proxies=proxies,
                 )
                 if response.status_code == 404:
                     logger.error("Статус 404 (не найдено): %s", url)
@@ -190,8 +231,9 @@ class WbApiClient(IApiClient):
 
                 return response.json()
 
-            except requests.exceptions.RequestException:
+            except requests.exceptions.RequestException as e:
                 logger.exception("Ошибка сети при запросе к %s.", url)
+                proxies = self._rotate_proxy(e, url)
                 if attempt < max_retries:
                     delay = (
                         settings.retry_delays[attempt]
@@ -248,11 +290,17 @@ class WbApiClient(IApiClient):
             )
 
             try:
+                self._update_user_agent_header()
                 result = self._make_request(settings.api_search_url, params)
-            except Exception:
+            except (requests.exceptions.RequestException, TokenFetchError):
                 logger.exception("Ошибка при выполнении запроса.")
                 if attempt < settings.max_retries:
-                    time.sleep(settings.retry_delays[attempt])
+                    delay = (
+                        settings.retry_delays[attempt]
+                        if attempt < len(settings.retry_delays)
+                        else 2
+                    )
+                    time.sleep(delay)
                     continue
                 return None
 

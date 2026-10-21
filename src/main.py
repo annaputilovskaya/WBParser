@@ -5,6 +5,7 @@ from src.exporters.excel_exporter import ExcelExporter
 from src.parsers.api_client import WbApiClient
 from src.parsers.search_parser import SearchParser
 from src.utils.logging_config import get_logger, setup_logging
+from src.utils.proxy_pool import ProxyPool
 
 
 def main() -> None:
@@ -24,7 +25,8 @@ def main() -> None:
 
     try:
         # Composition root: создаём зависимости и инжектируем их
-        client = WbApiClient()
+        proxy_pool = ProxyPool()
+        client = WbApiClient(proxy_pool=proxy_pool)
         search_parser = SearchParser(client=client)
         exporter = ExcelExporter()
 

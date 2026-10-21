@@ -16,10 +16,13 @@ def patched_main(mocker: MockerFixture) -> MagicMock:
     mocker.patch("src.config.app_settings.AppSettings.ensure_cache_dir")
     mocker.patch("src.main.setup_logging")
     get_logger_mock = mocker.patch("src.main.get_logger")
-    mocker.patch("src.main.WbApiClient")
+    client_cls = mocker.patch("src.main.WbApiClient")
+    proxy_pool_cls = mocker.patch("src.main.ProxyPool")
     parser_cls = mocker.patch("src.main.SearchParser")
     exporter_cls = mocker.patch("src.main.ExcelExporter")
     facade = MagicMock()
+    facade.client_cls = client_cls
+    facade.proxy_pool_cls = proxy_pool_cls
     facade.parser_cls = parser_cls
     facade.exporter_cls = exporter_cls
     facade.logger = get_logger_mock.return_value
@@ -50,6 +53,12 @@ class TestMain:
             [mock_product]
         )
         patched_main.logger.info.assert_any_call("Парсинг успешно завершён.")
+        patched_main.client_cls.assert_called_once_with(
+            proxy_pool=patched_main.proxy_pool_cls.return_value
+        )
+        patched_main.parser_cls.assert_called_once_with(
+            client=patched_main.client_cls.return_value
+        )
 
     def test_main_wraps_unexpected_error(self, patched_main: MagicMock) -> None:
         """Неожиданная ошибка логируется и пробрасывается дальше."""
