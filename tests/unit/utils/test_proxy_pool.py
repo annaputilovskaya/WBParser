@@ -27,22 +27,52 @@ class TestMaskProxyUrl:
 
     def test_masks_scheme_less_url_with_credentials(self) -> None:
         """Прокси без схемы тоже маскирует credentials."""
-        masked = mask_proxy_url("user:pass@host:8080")
-        assert masked.endswith("@host:8080")
-        assert "pass" not in masked
-        assert "user" not in masked
+        assert mask_proxy_url("user:pass@host:8080") == "***@host:8080"
 
     def test_does_not_raise_on_malformed_url(self) -> None:
         """Некорректный URL не приводит к исключению."""
-        masked = mask_proxy_url("http://[invalid")
-        assert isinstance(masked, str)
-        assert masked
+        assert mask_proxy_url("http://[invalid") == "***"
 
     def test_masks_credentials_in_malformed_url(self) -> None:
         """Даже в некорректном URL credentials не попадают в результат."""
         masked = mask_proxy_url("http://user:secret@[invalid")
         assert "secret" not in masked
         assert "user" not in masked
+
+    @pytest.mark.parametrize(
+        ("proxy", "expected"),
+        [
+            (None, ""),
+            ("", ""),
+            ("http://host:8080", "http://host:8080"),
+            ("http://user:pass@host:8080", "http://***@host:8080"),
+            ("user:pass@host:8080", "***@host:8080"),
+            ("socks5://user:pass@host:1080", "socks5://***@host:1080"),
+            ("user:p@ss@host", "***@host"),
+            ("http://user:pass@[::1]:8080", "http://***@[::1]:8080"),
+            ("http://[invalid", "***"),
+        ],
+    )
+    def test_matches_contract(self, proxy: str | None, expected: str) -> None:
+        """Результат маскирования соответствует контракту."""
+        assert mask_proxy_url(proxy) == expected
+
+    @pytest.mark.parametrize(
+        "proxy",
+        [
+            "http://user:pa/ss@host",
+            "user:pa/ss@host",
+            "http:/user:pass@host",
+            "http://user:pa?ss@host",
+            "http://user:pa#ss@host",
+        ],
+    )
+    def test_masks_credentials_outside_authority(self, proxy: str) -> None:
+        """Credentials вне authority-части тоже маскируются."""
+        masked = mask_proxy_url(proxy)
+        assert "user:pa" not in masked
+        assert "pass" not in masked
+        assert "***" in masked
 
 
 class TestProxyPool:
@@ -131,3 +161,30 @@ class TestProxyPool:
 
         assert "secret" not in caplog.text
         assert "user:secret" not in caplog.text
+
+    def test_logs_do_not_leak_credentials_outside_authority(
+        self,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Credentials вне authority-части не попадают в логи."""
+        mocker.patch.object(settings, "proxy_health_check", True)
+        mocker.patch(
+            "requests.get",
+            side_effect=requests.exceptions.InvalidURL(
+                "Failed to parse: http://user:pa/ss@host"
+            ),
+        )
+        pool = ProxyPool(proxies=["http://user:pa/ss@host"])
+        with caplog.at_level(logging.DEBUG):
+            pool.get_next_proxy()
+
+        assert "user:pa" not in caplog.text
+        assert "ss@host" not in caplog.text
+
+    def test_is_proxy_alive_handles_value_error(
+        self, pool: ProxyPool, mocker: MockerFixture
+    ) -> None:
+        """Некорректные параметры запроса (ValueError) не пробрасываются."""
+        mocker.patch("requests.get", side_effect=ValueError("Timeout cannot be <= 0."))
+        assert pool._is_proxy_alive("http://h:1") is False

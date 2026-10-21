@@ -26,9 +26,10 @@ _MASKED_CREDENTIALS = "***"
 def mask_proxy_url(proxy: str | None) -> str:
     """Маскирует логин и пароль в URL прокси.
 
-    Credentials маскируются независимо от наличия схемы (``http://``) и
-    независимо от позиции символа ``@``. Некорректный URL не приводит
-    к исключению — возвращается безопасная заглушка.
+    Всё, что стоит перед **последним** символом ``@`` (кроме схемы),
+    считается credentials и заменяется на ``***`` — даже если ``@`` оказался
+    вне authority-части URL (например, в пути или в query). Некорректный URL
+    не приводит к исключению — возвращается безопасная заглушка.
 
     Args:
         proxy (str | None): URL прокси или None.
@@ -43,23 +44,16 @@ def mask_proxy_url(proxy: str | None) -> str:
 
     scheme_match = _SCHEME_PATTERN.match(proxy)
     scheme = scheme_match.group("scheme") if scheme_match else ""
+    prefix = f"{scheme}://" if scheme else ""
     remainder = proxy[scheme_match.end() :] if scheme_match else proxy
 
-    authority_end = len(remainder)
-    for delimiter in ("/", "?", "#"):
-        position = remainder.find(delimiter)
-        if position != -1:
-            authority_end = min(authority_end, position)
-
-    authority = remainder[:authority_end]
-    if "@" not in authority:
+    separator = remainder.rfind("@")
+    if separator == -1:
         masked = proxy
     else:
-        host = authority.rsplit("@", 1)[1]
-        tail = remainder[authority_end:]
-        path = tail.split("?", 1)[0].split("#", 1)[0]
-        prefix = f"{scheme}://" if scheme else ""
-        masked = f"{prefix}{_MASKED_CREDENTIALS}@{host}{path}"
+        host_and_tail = remainder[separator + 1 :]
+        host_and_path = host_and_tail.split("?", 1)[0].split("#", 1)[0]
+        masked = f"{prefix}{_MASKED_CREDENTIALS}@{host_and_path}"
 
     try:
         urlsplit(masked)
@@ -175,6 +169,10 @@ class ProxyPool:
         Выполняет простой HTTP-запрос через прокси к публичному сервису
         (например, https://httpbin.org/ip) и проверяет успешность ответа.
 
+        Ошибки сети (``requests.exceptions.RequestException``) и некорректные
+        параметры запроса (``ValueError``, например, недопустимый таймаут)
+        считаются признаком недоступного прокси.
+
         Args:
             proxy: URL прокси для проверки.
 
@@ -188,7 +186,7 @@ class ProxyPool:
                 timeout=self.health_check_timeout,
             )
             return response.status_code == 200
-        except requests.exceptions.RequestException as e:
+        except (requests.exceptions.RequestException, ValueError) as e:
             logger.debug(
                 "Прокси %s недоступен: %s",
                 mask_proxy_url(proxy),
