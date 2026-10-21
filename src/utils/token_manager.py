@@ -12,6 +12,10 @@ from src.config.app_settings import settings
 logger = logging.getLogger(__name__)
 
 
+class TokenFetchError(RuntimeError):
+    """Ошибка получения токена авторизации Wildberries через Selenium."""
+
+
 class TokenManager:
     """Управление получением и обновлением токена авторизации."""
 
@@ -27,7 +31,7 @@ class TokenManager:
             Строка с токеном.
 
         Raises:
-            RuntimeError: Если не удалось получить токен после
+            TokenFetchError: Если не удалось получить токен после
                 settings.token_max_retries попыток.
         """
         ttl = settings.token_ttl_seconds
@@ -71,7 +75,7 @@ class TokenManager:
                                 return token
                     if _attempt < settings.token_max_retries - 1:
                         time.sleep(settings.token_retry_delay)
-                raise RuntimeError(
+                raise TokenFetchError(
                     f"Не удалось получить токен после "
                     f"{settings.token_max_retries} попыток"
                 )
