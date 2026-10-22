@@ -28,6 +28,8 @@ class SearchParser:
         base_ranges (list[tuple[int, int]]): Текущие ценовые диапазоны, используемые
             экземпляром парсера.
         detail_parser (ProductDetailParser): Парсер детальной информации.
+        products (list[Product]): Товары, собранные текущим запуском парсинга.
+            Используются для аварийного экспорта при сбое.
     """
 
     def __init__(
@@ -44,6 +46,7 @@ class SearchParser:
         self.client = client
         self.base_ranges = base_ranges or settings.default_base_ranges
         self.detail_parser = ProductDetailParser(client)
+        self.products: list[Product] = []
 
     def parse(self, query: str | None = None, enrich: bool = True) -> list[Product]:
         """
@@ -66,7 +69,7 @@ class SearchParser:
         """
         if query is None:
             query = settings.default_search_query
-        all_products = []
+        self.products = []
 
         initial_data = self.client.search_products(query=query, page=1)
         expected_total = initial_data.get("total", 0) if initial_data else 0
@@ -78,19 +81,19 @@ class SearchParser:
         for min_p, max_p in self.base_ranges:
             logger.info(f"Обработка базового диапазона: {min_p} - {max_p}")
             range_products = self._process_range(query, min_p, max_p)
-            all_products.extend(range_products)
+            self.products.extend(range_products)
             logger.info(
-                f"После диапазона {min_p}-{max_p} в общем списке уже {len(all_products)} товаров"
+                f"После диапазона {min_p}-{max_p} в общем списке уже {len(self.products)} товаров"
             )
-        actual_total = len(all_products)
+        actual_total = len(self.products)
         logger.info("=== ФИНАЛЬНЫЙ ОТЧЕТ ===")
         logger.info(f"Ожидалось изначально: {expected_total}")
         logger.info(f"Фактически собрано:  {actual_total}")
 
-        if enrich and all_products:
+        if enrich and self.products:
             logger.info("=== ДОПОЛНЕНИЕ ТОВАРОВ ДЕТАЛЬНОЙ ИНФОРМАЦИЕЙ ===")
-            all_products, failed_products = self.detail_parser.enrich_multiple(
-                all_products
+            self.products, failed_products = self.detail_parser.enrich_multiple(
+                self.products
             )
             # Если есть ошибки — делаем финальный добор
             if failed_products:
@@ -105,8 +108,8 @@ class SearchParser:
                         f"Окончательно не удалось дополнить: {len(still_failed)} шт."
                     )
             else:
-                logger.info(f"Дополнено {len(all_products)} товаров")
-        return all_products
+                logger.info(f"Дополнено {len(self.products)} товаров")
+        return self.products
 
     def _process_range(self, query: str, min_p: int, max_p: int) -> list[Product]:
         """
@@ -172,6 +175,8 @@ class SearchParser:
                         products_in_range.append(self._map_product(item))
                     except ProductMappingError as e:
                         logger.warning("Ошибка маппинга товара: %s", e)
+                    except Exception:
+                        logger.exception("Непредвиденная ошибка маппинга товара")
 
                 time.sleep(settings.page_delay)
 

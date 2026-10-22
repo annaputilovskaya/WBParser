@@ -62,7 +62,46 @@ class TestMain:
 
     def test_main_wraps_unexpected_error(self, patched_main: MagicMock) -> None:
         """Неожиданная ошибка логируется и пробрасывается дальше."""
+        patched_main.parser_cls.return_value.products = []
         patched_main.parser_cls.return_value.parse.side_effect = RuntimeError("boom")
         with pytest.raises(RuntimeError, match="boom"):
             main()
         patched_main.logger.exception.assert_called_once()
+
+    def test_main_exports_partial_products_on_error(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """При сбое парсинга частичные товары экспортируются, ошибка пробрасывается."""
+        parser = patched_main.parser_cls.return_value
+        parser.products = [mock_product]
+        parser.parse.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            main()
+
+        patched_main.exporter_cls.return_value.export_full_catalog.assert_called_once_with(
+            [mock_product]
+        )
+        patched_main.exporter_cls.return_value.export_filtered_catalog.assert_called_once_with(
+            [mock_product]
+        )
+        patched_main.logger.warning.assert_any_call(
+            "Аварийный экспорт частично собранных товаров: %d", 1
+        )
+
+    def test_main_exports_once_on_success(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Экспорт выполняется ровно один раз — в finally."""
+        patched_main.parser_cls.return_value.products = [mock_product]
+        patched_main.parser_cls.return_value.parse.return_value = [mock_product]
+
+        assert main() is None
+
+        assert (
+            patched_main.exporter_cls.return_value.export_full_catalog.call_count == 1
+        )
+        assert (
+            patched_main.exporter_cls.return_value.export_filtered_catalog.call_count
+            == 1
+        )

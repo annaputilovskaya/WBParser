@@ -348,18 +348,88 @@ class TestSearchParser:
 
         assert search_parser._map_product({"id": 1}) is product
 
-    def test_map_product_does_not_hide_unexpected_error(
+    def test_process_range_skips_item_on_unexpected_error(
         self,
         search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Неожиданная ошибка маппинга не роняет сбор: товар пропускается."""
+        mocker.patch("time.sleep", return_value=None)
+        mock_api_response_search["total"] = 100
+        mock_api_response_search["products"] = [{"id": 1}, {"id": 2}, {"id": 3}]
+        search_parser.client.search_products.return_value = mock_api_response_search
+
+        def from_api(item: dict) -> Product:
+            if item["id"] == 2:
+                raise RuntimeError("boom")
+            return Product(url="", article=item["id"], name="Т", price=1.0)
+
+        mocker.patch.object(Product, "from_api_search_data", side_effect=from_api)
+
+        with caplog.at_level(logging.ERROR):
+            result = search_parser._process_range("тест", 0, 1000)
+
+        assert [p.article for p in result] == [1, 3]
+        errors = [
+            rec
+            for rec in caplog.records
+            if "Непредвиденная ошибка маппинга товара" in rec.getMessage()
+        ]
+        assert len(errors) == 1
+        assert errors[0].levelno == logging.ERROR
+        assert errors[0].exc_info is not None
+
+    def test_parse_keeps_partial_products(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
         mocker: MockerFixture,
     ) -> None:
-        """Проверяет, что неожиданные ошибки не маскируются доменным исключением."""
+        """Парсер сохраняет собранные товары в self.products для аварийного экспорта."""
+        mocker.patch("time.sleep", return_value=None)
+        mock_api_response_search["total"] = 100
+        mock_api_response_search["products"] = [{"id": 1}, {"id": 2}]
+        search_parser.base_ranges = [(0, 1000)]
+        search_parser.client.search_products.return_value = mock_api_response_search
+
+        def from_api(item: dict) -> Product:
+            if item["id"] == 2:
+                raise RuntimeError("boom")
+            return Product(url="", article=item["id"], name="Т", price=1.0)
+
+        mocker.patch.object(Product, "from_api_search_data", side_effect=from_api)
+
+        result = search_parser.parse(query="тест", enrich=False)
+
+        assert [p.article for p in result] == [1]
+        assert search_parser.products == result
+
+    def test_parse_updates_products_after_enrich(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+    ) -> None:
+        """После обогащения self.products содержит обогащённый список."""
+        search_parser.base_ranges = [(0, 1000)]
+        search_parser.client.search_products.return_value = mock_api_response_search
+        mock_product = Product(url="", article=1, name="Т", price=1.0)
+        enriched_product = Product(
+            url="", article=1, name="Т", price=1.0, description="О"
+        )
+        search_parser._process_range = Mock(return_value=[mock_product])
         mocker.patch.object(
-            Product, "from_api_search_data", side_effect=RuntimeError("boom")
+            search_parser.detail_parser,
+            "enrich_multiple",
+            return_value=([enriched_product], []),
         )
 
-        with pytest.raises(RuntimeError):
-            search_parser._map_product({"id": 1})
+        result = search_parser.parse(query="тест", enrich=True)
+
+        assert result == [enriched_product]
+        assert search_parser.products == [enriched_product]
 
     def test_max_pages_derived_from_limit_per_request(
         self, search_parser: SearchParser, mocker: MockerFixture

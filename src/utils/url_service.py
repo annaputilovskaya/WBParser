@@ -1,5 +1,6 @@
 """Сервис для формирования URL изображений и карточек Wildberries."""
 
+import contextlib
 import json
 import logging
 import os
@@ -13,6 +14,8 @@ from src.config.app_settings import settings
 from src.utils.exceptions import BasketConfigError
 
 logger = logging.getLogger(__name__)
+
+_reported_basket_error: str | None = None
 
 
 class BasketManager:
@@ -48,11 +51,26 @@ class BasketManager:
         Returns:
             str: Номер корзины (например, '01', '12'). По умолчанию '01'.
         """
+        global _reported_basket_error
+
         try:
             config = cls._get_config()
-            return cls._extract_basket(config, vol)
+            basket = cls._extract_basket(config, vol)
+            _reported_basket_error = None
+            return basket
         except BasketConfigError as e:
-            logger.warning("Не удалось определить номер корзины для vol=%s: %s", vol, e)
+            error_text = str(e)
+            if _reported_basket_error != error_text:
+                _reported_basket_error = error_text
+                logger.warning(
+                    "Не удалось определить номер корзины для vol=%s: %s", vol, e
+                )
+            else:
+                logger.debug(
+                    "Не удалось определить номер корзины для vol=%s: %s", vol, e
+                )
+        except Exception:
+            logger.exception("Непредвиденная ошибка при определении номера корзины")
         return "01"
 
     @staticmethod
@@ -141,7 +159,7 @@ class BasketManager:
 
             with open(path, encoding="utf-8") as f:
                 config = json.load(f)
-        except (OSError, ValueError) as e:
+        except (OSError, TypeError, ValueError) as e:
             raise BasketConfigError("Не удалось получить конфигурацию корзин") from e
 
         if not isinstance(config, dict):
@@ -155,8 +173,8 @@ class BasketManager:
             response = requests.get(cls.URL, timeout=10)
             response.raise_for_status()
             data = response.json()
-        except (requests.exceptions.RequestException, ValueError):
-            logger.warning("Ошибка при обновлении конфигурации корзин")
+        except (requests.exceptions.RequestException, ValueError) as e:
+            logger.warning("Ошибка при обновлении конфигурации корзин: %s", e)
             return
 
         tmp_path: Path | None = None
@@ -170,10 +188,11 @@ class BasketManager:
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
-        except OSError:
-            logger.warning("Ошибка записи кэша корзин")
+        except OSError as e:
+            logger.warning("Ошибка записи кэша корзин: %s", e)
             if tmp_path is not None:
-                tmp_path.unlink(missing_ok=True)
+                with contextlib.suppress(OSError):
+                    tmp_path.unlink(missing_ok=True)
             return
         logger.info("Конфигурация корзин успешно обновлена")
 

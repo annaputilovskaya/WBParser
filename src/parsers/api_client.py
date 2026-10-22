@@ -1,6 +1,5 @@
 """API клиент для работы с Wildberries API."""
 
-import json
 import logging
 import random
 import time
@@ -155,7 +154,7 @@ class WbApiClient(IApiClient):
         """
         if self.proxy_pool is None:
             return None
-        logger.warning(
+        logger.debug(
             "Ошибка запроса (%s) к %s — ротация прокси",
             type(error).__name__,
             url,
@@ -264,9 +263,6 @@ class WbApiClient(IApiClient):
                     time.sleep(delay)
                 else:
                     return None
-            except json.JSONDecodeError:
-                logger.exception("Ошибка парсинга JSON ответа от %s.", url)
-                return None
 
         return None
 
@@ -312,6 +308,34 @@ class WbApiClient(IApiClient):
             try:
                 self._update_user_agent_header()
                 result = self._make_request(settings.api_search_url, params)
+
+                if result:
+                    products = result.get("products") or result.get("data", {}).get(
+                        "products", []
+                    )
+                    count = len(products)
+                    # В случае, если получаем аномально малое количество продуктов (антибот)
+                    if count <= 1 and attempt < settings.max_retries:
+                        delay = (
+                            settings.retry_delays[attempt]
+                            if attempt < len(settings.retry_delays)
+                            else 2
+                        )
+                        logger.warning(
+                            "Получено всего %d тов. (вероятно сбой). Повтор через %d сек...",
+                            count,
+                            delay,
+                        )
+                        time.sleep(delay)
+                        continue
+                    logger.info("Получено %d товаров на странице %d", count, page)
+                    return result
+
+                if attempt == settings.max_retries:
+                    logger.error(
+                        "Не удалось получить данные для страницы %d после всех ретраев",
+                        page,
+                    )
             except (requests.exceptions.RequestException, TokenFetchError):
                 logger.exception("Ошибка при выполнении запроса.")
                 if attempt < settings.max_retries:
@@ -326,34 +350,6 @@ class WbApiClient(IApiClient):
             except Exception:
                 logger.exception("Неожиданная ошибка при выполнении запроса.")
                 return None
-
-            if result:
-                products = result.get("products") or result.get("data", {}).get(
-                    "products", []
-                )
-                count = len(products)
-                # В случае, если получаем аномально малое количество продуктов (антибот)
-                if count <= 1 and attempt < settings.max_retries:
-                    delay = (
-                        settings.retry_delays[attempt]
-                        if attempt < len(settings.retry_delays)
-                        else 2
-                    )
-                    logger.warning(
-                        "Получено всего %d тов. (вероятно сбой). Повтор через %d сек...",
-                        count,
-                        delay,
-                    )
-                    time.sleep(delay)
-                    continue
-                logger.info("Получено %d товаров на странице %d", count, page)
-                return result
-
-            if attempt == settings.max_retries:
-                logger.error(
-                    "Не удалось получить данные для страницы %d после всех ретраев",
-                    page,
-                )
 
         return None
 

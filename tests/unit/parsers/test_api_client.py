@@ -1,6 +1,6 @@
 """Юнит-тесты для API клиента Wildberries."""
 
-import json
+import logging
 from unittest.mock import Mock
 
 import pytest
@@ -113,7 +113,9 @@ class TestWbApiClient:
         """Проверяет обработку ошибки декодирования JSON в _make_request."""
         mock_response = mocker.Mock()
         mock_response.status_code = 200
-        mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
+        mock_response.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Invalid JSON", "", 0
+        )
         api_client.session.get.return_value = mock_response
 
         result = api_client._make_request("https://example.com", {})
@@ -319,3 +321,41 @@ class TestWbApiClient:
 
         assert result is None
         assert api_client._make_request.call_count == 1
+
+    def test_search_products_handles_non_dict_response(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Неожиданный формат ответа (не словарь) не роняет парсинг."""
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{"id": 1}, {"id": 2}]
+        api_client.session.get.return_value = mock_response
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+
+    def test_request_failure_logs_single_error_record(
+        self,
+        api_client_with_proxy: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Одна ошибка запроса даёт одну запись ERROR (без дубля от _rotate_proxy)."""
+        mocker.patch.object(settings, "max_retries", 0)
+        api_client_with_proxy.session.get.side_effect = (
+            requests.exceptions.RequestException("network down")
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "Ошибка сети при запросе" in errors[0].getMessage()
+        rotations = [
+            rec for rec in caplog.records if "ротация прокси" in rec.getMessage()
+        ]
+        assert rotations
+        assert all(rec.levelno == logging.DEBUG for rec in rotations)
