@@ -82,6 +82,51 @@ class TestMain:
         messages = [call.args[0] for call in patched_main.logger.info.call_args_list]
         assert "Парсинг и экспорт успешно завершены." not in messages
 
+    def test_main_success_run_logs_no_partial_message(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Успешный запуск не содержит сообщения о частичном экспорте."""
+        patched_main.parser_cls.return_value.parse.return_value = [mock_product]
+
+        assert main() is None
+
+        patched_main.logger.info.assert_any_call("Парсинг и экспорт успешно завершены.")
+        warnings = [call.args[0] for call in patched_main.logger.warning.call_args_list]
+        assert not any("экспортировано частично" in message for message in warnings)
+
+    def test_main_logs_partial_export_on_keyboard_interrupt(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Прерывание парсинга логирует частичный экспорт и не логирует успех."""
+        parser = patched_main.parser_cls.return_value
+        parser.products = [mock_product]
+        parser.parse.side_effect = KeyboardInterrupt
+
+        assert main() is None
+
+        patched_main.logger.warning.assert_any_call(
+            "Парсинг прерван, экспортировано частично: %d товаров", 1
+        )
+        messages = [call.args[0] for call in patched_main.logger.info.call_args_list]
+        assert "Парсинг и экспорт успешно завершены." not in messages
+
+    def test_main_logs_partial_export_on_unexpected_error(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Неожиданная ошибка логирует частичный экспорт и не логирует успех."""
+        parser = patched_main.parser_cls.return_value
+        parser.products = [mock_product]
+        parser.parse.side_effect = RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            main()
+
+        patched_main.logger.warning.assert_any_call(
+            "Парсинг прерван, экспортировано частично: %d товаров", 1
+        )
+        messages = [call.args[0] for call in patched_main.logger.info.call_args_list]
+        assert "Парсинг и экспорт успешно завершены." not in messages
+
     def test_main_logs_exporter_constructor_failure(
         self, patched_main: MagicMock
     ) -> None:

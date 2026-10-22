@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import time
+import traceback
 from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import Mock, mock_open
@@ -452,9 +453,15 @@ class TestBasketManager:
     def test_unexpected_error_logged_once_with_vol(
         self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """Повторяющиеся неожиданные ошибки не засоряют лог трассировками."""
+        """Повторяющиеся неожиданные ошибки не засоряют лог трассировками.
+
+        Даже если текст исключения меняется, громкая запись создаётся один раз:
+        защёлка ключуется типом исключения, а не его текстом.
+        """
         mocker.patch.object(
-            BasketManager, "_get_config", side_effect=RuntimeError("boom")
+            BasketManager,
+            "_get_config",
+            side_effect=[RuntimeError("boom path=a"), RuntimeError("boom path=b")],
         )
 
         with caplog.at_level(logging.DEBUG):
@@ -465,6 +472,8 @@ class TestBasketManager:
         assert len(errors) == 1
         assert errors[0].exc_info is not None
         assert "vol=5" in errors[0].getMessage()
+        assert "boom path=a" in errors[0].getMessage()
+        assert "boom path=a" in "".join(traceback.format_exception(*errors[0].exc_info))
 
         debug_records = [
             rec
@@ -475,6 +484,7 @@ class TestBasketManager:
         assert len(debug_records) == 1
         assert debug_records[0].exc_info is None
         assert "vol=6" in debug_records[0].getMessage()
+        assert "boom path=b" in debug_records[0].getMessage()
 
     def test_unexpected_error_latch_resets_on_success(
         self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture

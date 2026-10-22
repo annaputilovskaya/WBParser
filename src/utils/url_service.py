@@ -49,7 +49,8 @@ class BasketManager:
 
         Повторяющиеся однотипные ошибки не засоряют лог: первое вхождение
         логируется громко (с трассировкой для неожиданных ошибок), последующие
-        — только на уровне DEBUG.
+        — только на уровне DEBUG. Неожиданные ошибки ключуются типом исключения,
+        поэтому меняющийся текст ошибки не приводит к новым громким записям.
 
         Args:
             vol (int): Составляющая артикула (article // 100000).
@@ -76,12 +77,14 @@ class BasketManager:
                     "Не удалось определить номер корзины для vol=%s: %s", vol, e
                 )
         except Exception as e:
-            error_text = f"{_UNEXPECTED_ERROR_PREFIX}{type(e).__name__}: {e}"
-            if _reported_basket_error != error_text:
-                _reported_basket_error = error_text
-                logger.exception(
-                    "Непредвиденная ошибка при определении номера корзины для vol=%s",
+            error_key = f"{_UNEXPECTED_ERROR_PREFIX}{type(e).__name__}"
+            if _reported_basket_error != error_key:
+                _reported_basket_error = error_key
+                logger.error(
+                    "Непредвиденная ошибка при определении номера корзины для vol=%s: %s",
                     vol,
+                    e,
+                    exc_info=True,
                 )
             else:
                 logger.debug(
