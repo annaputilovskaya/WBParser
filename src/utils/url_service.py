@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 
 _reported_basket_error: str | None = None
 
+_UNEXPECTED_ERROR_PREFIX = "unexpected:"
+
 
 class BasketManager:
     """Менеджер для управления конфигурацией корзин Wildberries.
@@ -45,6 +47,10 @@ class BasketManager:
     def get_basket_number(cls, vol: int) -> str:
         """Определяет номер корзины на основе значения vol.
 
+        Повторяющиеся однотипные ошибки не засоряют лог: первое вхождение
+        логируется громко (с трассировкой для неожиданных ошибок), последующие
+        — только на уровне DEBUG.
+
         Args:
             vol (int): Составляющая артикула (article // 100000).
 
@@ -69,8 +75,20 @@ class BasketManager:
                 logger.debug(
                     "Не удалось определить номер корзины для vol=%s: %s", vol, e
                 )
-        except Exception:
-            logger.exception("Непредвиденная ошибка при определении номера корзины")
+        except Exception as e:
+            error_text = f"{_UNEXPECTED_ERROR_PREFIX}{type(e).__name__}: {e}"
+            if _reported_basket_error != error_text:
+                _reported_basket_error = error_text
+                logger.exception(
+                    "Непредвиденная ошибка при определении номера корзины для vol=%s",
+                    vol,
+                )
+            else:
+                logger.debug(
+                    "Непредвиденная ошибка при определении номера корзины для vol=%s: %s",
+                    vol,
+                    e,
+                )
         return "01"
 
     @staticmethod

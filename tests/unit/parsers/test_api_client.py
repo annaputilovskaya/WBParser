@@ -291,6 +291,73 @@ class TestWbApiClient:
         assert result is None
         assert api_client._make_request.call_count == settings.max_retries + 1
 
+    def test_search_products_token_fetch_error_logged_without_traceback(
+        self,
+        api_client: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Доменная ошибка токена логируется как warning без трассировки."""
+        mocker.patch.object(settings, "max_retries", 0)
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=TokenFetchError("нет токена")
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        warnings = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING
+            and "Не удалось получить токен" in rec.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert "нет токена" in warnings[0].getMessage()
+        assert warnings[0].exc_info is None
+        errors = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.ERROR
+            and "Ошибка при выполнении запроса." in rec.getMessage()
+        ]
+        assert errors == []
+
+    def test_search_products_request_exception_logged_with_traceback(
+        self,
+        api_client: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Транспортная ошибка логируется как ERROR с трассировкой."""
+        mocker.patch.object(settings, "max_retries", 0)
+        mocker.patch.object(
+            api_client,
+            "_make_request",
+            side_effect=requests.exceptions.RequestException("network down"),
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        errors = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.ERROR
+            and "Ошибка при выполнении запроса." in rec.getMessage()
+        ]
+        assert len(errors) == 1
+        assert errors[0].exc_info is not None
+        warnings = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING
+            and "Не удалось получить токен" in rec.getMessage()
+        ]
+        assert warnings == []
+
     def test_make_request_invalid_url_does_not_log_proxy_secret(
         self,
         api_client_with_proxy: WbApiClient,

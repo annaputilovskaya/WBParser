@@ -52,13 +52,83 @@ class TestMain:
         patched_main.exporter_cls.return_value.export_filtered_catalog.assert_called_once_with(
             [mock_product]
         )
-        patched_main.logger.info.assert_any_call("Парсинг успешно завершён.")
+        patched_main.logger.info.assert_any_call("Парсинг и экспорт успешно завершены.")
         patched_main.proxy_pool_cls.assert_called_once_with()
         patched_main.client_cls.assert_called_once_with(
             proxy_pool=patched_main.proxy_pool_cls.return_value
         )
         patched_main.parser_cls.assert_called_once_with(
             client=patched_main.client_cls.return_value
+        )
+
+    def test_main_logs_success_only_after_export(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Сообщение об успехе логируется после фактического экспорта."""
+        patched_main.parser_cls.return_value.parse.return_value = [mock_product]
+
+        assert main() is None
+
+        patched_main.logger.info.assert_any_call("Парсинг и экспорт успешно завершены.")
+
+    def test_main_no_success_message_without_products(
+        self, patched_main: MagicMock
+    ) -> None:
+        """Без собранных товаров сообщение об успехе не логируется."""
+        patched_main.parser_cls.return_value.parse.return_value = []
+
+        assert main() is None
+
+        messages = [call.args[0] for call in patched_main.logger.info.call_args_list]
+        assert "Парсинг и экспорт успешно завершены." not in messages
+
+    def test_main_logs_exporter_constructor_failure(
+        self, patched_main: MagicMock
+    ) -> None:
+        """Ошибка конструктора экспортёра логируется и пробрасывается дальше."""
+        patched_main.exporter_cls.side_effect = RuntimeError("boom exporter")
+
+        with pytest.raises(RuntimeError, match="boom exporter"):
+            main()
+
+        patched_main.logger.exception.assert_called_once_with(
+            "Неожиданная ошибка при парсинге:"
+        )
+        patched_main.exporter_cls.return_value.export_full_catalog.assert_not_called()
+
+    def test_main_no_success_message_when_export_fails(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Сбой экспорта не оставляет в логе сообщение об успехе."""
+        patched_main.parser_cls.return_value.parse.return_value = [mock_product]
+        patched_main.exporter_cls.return_value.export_full_catalog.side_effect = (
+            RuntimeError("export failed")
+        )
+
+        assert main() is None
+
+        messages = [call.args[0] for call in patched_main.logger.info.call_args_list]
+        assert "Парсинг и экспорт успешно завершены." not in messages
+        patched_main.logger.exception.assert_called_once_with(
+            "Не удалось экспортировать собранные товары:"
+        )
+
+    def test_main_export_failure_does_not_mask_original_error(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """Сбой экспорта в finally не заменяет исходное исключение парсинга."""
+        parser = patched_main.parser_cls.return_value
+        parser.products = [mock_product]
+        parser.parse.side_effect = RuntimeError("boom parse")
+        patched_main.exporter_cls.return_value.export_full_catalog.side_effect = (
+            RuntimeError("export failed")
+        )
+
+        with pytest.raises(RuntimeError, match="boom parse"):
+            main()
+
+        patched_main.logger.exception.assert_any_call(
+            "Не удалось экспортировать собранные товары:"
         )
 
     def test_main_wraps_unexpected_error(self, patched_main: MagicMock) -> None:

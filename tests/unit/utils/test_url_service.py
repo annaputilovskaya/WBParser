@@ -449,6 +449,56 @@ class TestBasketManager:
         )
         assert errors[0].exc_info is not None
 
+    def test_unexpected_error_logged_once_with_vol(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Повторяющиеся неожиданные ошибки не засоряют лог трассировками."""
+        mocker.patch.object(
+            BasketManager, "_get_config", side_effect=RuntimeError("boom")
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            assert BasketManager.get_basket_number(5) == "01"
+            assert BasketManager.get_basket_number(6) == "01"
+
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].exc_info is not None
+        assert "vol=5" in errors[0].getMessage()
+
+        debug_records = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.DEBUG
+            and "Непредвиденная ошибка" in rec.getMessage()
+        ]
+        assert len(debug_records) == 1
+        assert debug_records[0].exc_info is None
+        assert "vol=6" in debug_records[0].getMessage()
+
+    def test_unexpected_error_latch_resets_on_success(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """После успеха защёлок сбрасывается: новая ошибка снова с трассировкой."""
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=[
+                RuntimeError("boom"),
+                {"origin": {"mediabasket_route_map": []}},
+                RuntimeError("boom"),
+            ],
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            BasketManager.get_basket_number(5)
+            BasketManager.get_basket_number(6)
+            BasketManager.get_basket_number(7)
+
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 2
+        assert all(rec.exc_info is not None for rec in errors)
+
     def test_get_config_type_error_raises_basket_config_error(
         self, mocker: MockerFixture
     ) -> None:

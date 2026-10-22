@@ -37,6 +37,9 @@ def _export_results(
     if filtered_path:
         logger.info("Отфильтрованный каталог сохранён: %s", filtered_path)
 
+    if full_path or filtered_path:
+        logger.info("Парсинг и экспорт успешно завершены.")
+
 
 def main() -> None:
     """Основная функция парсинга с использованием API поиска."""
@@ -53,19 +56,18 @@ def main() -> None:
         settings.default_search_query,
     )
 
-    exporter = ExcelExporter()
+    exporter: ExcelExporter | None = None
     products_data: list[Product] = []
     search_parser: SearchParser | None = None
 
     try:
         # Composition root: создаём зависимости и инжектируем их
+        exporter = ExcelExporter()
         proxy_pool = ProxyPool()
         client = WbApiClient(proxy_pool=proxy_pool)
         search_parser = SearchParser(client=client)
 
         products_data = search_parser.parse(enrich=True)
-
-        logger.info("Парсинг успешно завершён.")
 
     except KeyboardInterrupt:
         logger.info("Парсинг прерван пользователем.")
@@ -81,7 +83,11 @@ def main() -> None:
             )
         raise
     finally:
-        _export_results(exporter, products_data, logger)
+        if exporter is not None:
+            try:
+                _export_results(exporter, products_data, logger)
+            except Exception:
+                logger.exception("Не удалось экспортировать собранные товары:")
 
 
 if __name__ == "__main__":

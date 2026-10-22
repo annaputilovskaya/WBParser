@@ -336,8 +336,11 @@ class WbApiClient(IApiClient):
                         "Не удалось получить данные для страницы %d после всех ретраев",
                         page,
                     )
-            except (requests.exceptions.RequestException, TokenFetchError):
-                logger.exception("Ошибка при выполнении запроса.")
+            except (requests.exceptions.RequestException, TokenFetchError) as e:
+                if isinstance(e, TokenFetchError):
+                    logger.warning("Не удалось получить токен: %s", e)
+                else:
+                    logger.exception("Ошибка при выполнении запроса.")
                 if attempt < settings.max_retries:
                     delay = (
                         settings.retry_delays[attempt]

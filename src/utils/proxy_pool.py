@@ -5,7 +5,8 @@
 и выбор следующего доступного прокси для запросов.
 
 Credentials прокси никогда не попадают в логи: для этого используется
-функция mask_proxy_url.
+функция mask_proxy_url. Query-строка и fragment (например, ``?token=...``)
+также отбрасываются, чтобы токены провайдеров не утекали в логи.
 """
 
 import logging
@@ -24,24 +25,25 @@ _MASKED_CREDENTIALS = "***"
 
 
 def mask_proxy_url(proxy: str | None) -> str:
-    """Маскирует логин и пароль в URL прокси.
+    """Маскирует логин и пароль в URL прокси и убирает токены из query.
 
     Всё, что стоит перед **последним** символом ``@`` (кроме схемы),
     считается credentials и заменяется на ``***`` — даже если ``@`` оказался
     вне authority-части URL (например, в пути или в query). Некорректный URL
     не приводит к исключению — возвращается безопасная заглушка.
 
-    Если в URL есть credentials, из результата отбрасывается всё, что идёт
-    после ``?`` (query-строка) или ``#`` (fragment): токены вида
-    ``?token=...`` никогда не попадают в логи.
+    Query-строка (всё после ``?``) и fragment (всё после ``#``) отбрасываются
+    **всегда** — независимо от наличия credentials, чтобы токены вида
+    ``?token=...`` никогда не попадали в логи.
 
     Args:
         proxy (str | None): URL прокси или None.
 
     Returns:
         str: URL с заменой credentials на ``***`` и без query-строки/fragment,
-            исходная строка, если credentials отсутствуют, пустая строка
-            для None/пустого значения или ``***`` для некорректного URL.
+            исходная строка, если credentials, query и fragment отсутствуют,
+            пустая строка для None/пустого значения или ``***`` для
+            некорректного URL.
     """
     if not proxy:
         return ""
@@ -53,11 +55,14 @@ def mask_proxy_url(proxy: str | None) -> str:
 
     separator = remainder.rfind("@")
     if separator == -1:
-        masked = proxy
+        masked = f"{prefix}{remainder}"
     else:
         host_and_tail = remainder[separator + 1 :]
-        host_and_path = host_and_tail.split("?", 1)[0].split("#", 1)[0]
-        masked = f"{prefix}{_MASKED_CREDENTIALS}@{host_and_path}"
+        masked = f"{prefix}{_MASKED_CREDENTIALS}@{host_and_tail}"
+
+    # Query-строка и fragment отбрасываются всегда: токены вида
+    # ``?token=...`` не должны попадать в логи даже без credentials.
+    masked = masked.split("?", 1)[0].split("#", 1)[0]
 
     try:
         urlsplit(masked)

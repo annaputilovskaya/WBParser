@@ -51,6 +51,11 @@ class TestMaskProxyUrl:
             ("user:p@ss@host", "***@host"),
             ("http://user:pass@[::1]:8080", "http://***@[::1]:8080"),
             ("http://[invalid", "***"),
+            (
+                "http://proxy.provider.com:8000?token=secret",
+                "http://proxy.provider.com:8000",
+            ),
+            ("http://user:pass@host:8080/p?tok=abc#frag", "http://***@host:8080/p"),
         ],
     )
     def test_matches_contract(self, proxy: str | None, expected: str) -> None:
@@ -86,6 +91,24 @@ class TestMaskProxyUrl:
         assert mask_proxy_url("http://user:pass@host:8080?token=abc") == (
             "http://***@host:8080"
         )
+
+    def test_drops_query_without_credentials(self) -> None:
+        """Токен из query-строки отбрасывается даже без credentials."""
+        assert (
+            mask_proxy_url("http://proxy.provider.com:8000?token=secret")
+            == "http://proxy.provider.com:8000"
+        )
+
+    def test_drops_fragment_without_credentials(self) -> None:
+        """Fragment отбрасывается даже без credentials."""
+        assert (
+            mask_proxy_url("http://proxy.provider.com:8000#secret")
+            == "http://proxy.provider.com:8000"
+        )
+
+    def test_keeps_plain_url_unchanged(self) -> None:
+        """URL без credentials, query и fragment остаётся без изменений."""
+        assert mask_proxy_url("http://proxy1:1") == "http://proxy1:1"
 
     def test_uses_last_at_sign_even_in_path(self) -> None:
         """Credentials определяются по последнему «@», даже если он в пути."""
@@ -181,6 +204,17 @@ class TestProxyPool:
         assert "secret" not in text
         assert "user:secret@newhost" not in text
         assert "***@newhost:9" in text
+
+    def test_logs_do_not_leak_query_token(
+        self, pool: ProxyPool, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Токен из query-строки прокси не попадает в логи."""
+        with caplog.at_level(logging.INFO):
+            pool.add_proxy("http://proxy.provider.com:8000?token=secret")
+            pool.remove_proxy("http://proxy.provider.com:8000?token=secret")
+
+        assert "secret" not in caplog.text
+        assert "http://proxy.provider.com:8000" in caplog.text
 
     def test_is_proxy_alive_network_error(
         self, pool: ProxyPool, mocker: MockerFixture
