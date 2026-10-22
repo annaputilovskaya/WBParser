@@ -69,6 +69,9 @@ def main() -> None:
 
     except KeyboardInterrupt:
         logger.info("Парсинг прерван пользователем.")
+        if search_parser is not None:
+            products_data = search_parser.products
+            logger.warning("Экспорт частично собранных товаров: %d", len(products_data))
     except Exception:
         logger.exception("Неожиданная ошибка при парсинге:")
         if search_parser is not None:

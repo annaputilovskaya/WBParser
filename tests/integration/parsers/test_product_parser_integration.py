@@ -1,11 +1,17 @@
 """Интеграционные тесты для парсера детальной информации о товарах."""
 
+import os
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+from pytest_mock import MockFixture
+from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.api_client import WbApiClient
 from src.parsers.product_parser import ProductDetailParser
+from src.utils import url_service
+from src.utils.url_service import BasketManager
 
 
 class TestProductDetailParserIntegration:
@@ -16,6 +22,11 @@ class TestProductDetailParserIntegration:
         """Автоматически отключает все задержки во всех тестах класса."""
         with patch("time.sleep", return_value=None):
             yield
+
+    @pytest.fixture(autouse=True)
+    def mock_basket_manager(self, mocker: MockFixture) -> None:
+        """Не ходим в CDN за конфигурацией корзин."""
+        mocker.patch.object(BasketManager, "get_basket_number", return_value="01")
 
     @pytest.fixture
     def mock_session(self) -> Mock:
@@ -222,3 +233,23 @@ class TestProductDetailParserIntegration:
         success_articles = [p.article for p in enriched if p.description == "Успешно"]
         assert 1234567 in success_articles
         assert 1234569 in success_articles
+
+
+class TestLiveBasketConfig:
+    """Живой тест доступности CDN корзин (включается только вручную)."""
+
+    @pytest.mark.slow
+    @pytest.mark.allow_network
+    @pytest.mark.skipif(
+        not os.getenv("WB_ALLOW_NETWORK_TESTS"),
+        reason="Живой сетевой тест; включите WB_ALLOW_NETWORK_TESTS=1",
+    )
+    def test_basket_config_is_available(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Проверяет, что реальный CDN отдаёт конфигурацию корзин."""
+        monkeypatch.setattr(settings, "cache_dir", str(tmp_path))
+        monkeypatch.setattr(url_service, "_reported_basket_error", None)
+        config = BasketManager._get_config()
+        assert isinstance(config, dict)
+        assert config

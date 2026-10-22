@@ -4,8 +4,34 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
+import requests
 from pytest_mock import MockFixture
 from src.data_models.product import Product
+
+
+@pytest.fixture(autouse=True)
+def _block_real_network(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Запрещает реальные HTTP-запросы в тестах (AGENTS.md: внешние сервисы замоканы).
+
+    Тест, которому действительно нужен живой доступ, помечается маркером
+    ``@pytest.mark.allow_network``.
+
+    Args:
+        request: Объект текущего запроса pytest (для поиска маркеров).
+        monkeypatch: Фикстура для временной подмены атрибутов.
+    """
+    if request.node.get_closest_marker("allow_network"):
+        return
+
+    def _blocked(*args, **kwargs):
+        raise AssertionError(
+            "Реальный сетевой запрос запрещён в тестах. "
+            "Замокайте вызов или пометьте тест @pytest.mark.allow_network."
+        )
+
+    monkeypatch.setattr(requests.sessions.Session, "request", _blocked)
 
 
 @pytest.fixture

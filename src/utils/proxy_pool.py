@@ -31,13 +31,17 @@ def mask_proxy_url(proxy: str | None) -> str:
     вне authority-части URL (например, в пути или в query). Некорректный URL
     не приводит к исключению — возвращается безопасная заглушка.
 
+    Если в URL есть credentials, из результата отбрасывается всё, что идёт
+    после ``?`` (query-строка) или ``#`` (fragment): токены вида
+    ``?token=...`` никогда не попадают в логи.
+
     Args:
         proxy (str | None): URL прокси или None.
 
     Returns:
-        str: URL с заменой credentials на ``***``, исходная строка, если
-            credentials отсутствуют, пустая строка для None/пустого значения
-            или ``***`` для некорректного URL.
+        str: URL с заменой credentials на ``***`` и без query-строки/fragment,
+            исходная строка, если credentials отсутствуют, пустая строка
+            для None/пустого значения или ``***`` для некорректного URL.
     """
     if not proxy:
         return ""
@@ -119,8 +123,9 @@ class ProxyPool:
             return None
 
         # Если прошло больше 5 секунд с последнего использования,
-        # можно сменить прокси
-        if time.time() - self.last_used > 5:
+        # можно сменить прокси.
+        # 0.0 — прокси ещё не использовался, ротация по времени не нужна
+        if self.last_used and time.time() - self.last_used > 5:
             self._rotate()
 
         proxy = self.proxies[self.current_index]

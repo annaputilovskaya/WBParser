@@ -74,6 +74,25 @@ class TestMaskProxyUrl:
         assert "pass" not in masked
         assert "***" in masked
 
+    def test_drops_query_and_fragment(self) -> None:
+        """Query-строка и fragment отбрасываются вместе с credentials."""
+        assert (
+            mask_proxy_url("http://user:pass@host:8080/p?tok=abc#frag")
+            == "http://***@host:8080/p"
+        )
+
+    def test_drops_query_and_fragment_without_path(self) -> None:
+        """Query-строка отбрасывается и когда пути в URL нет."""
+        assert mask_proxy_url("http://user:pass@host:8080?token=abc") == (
+            "http://***@host:8080"
+        )
+
+    def test_uses_last_at_sign_even_in_path(self) -> None:
+        """Credentials определяются по последнему «@», даже если он в пути."""
+        assert (
+            mask_proxy_url("http://user:pass@host:8080/path@tail") == "http://***@tail"
+        )
+
 
 class TestProxyPool:
     """Тесты класса ProxyPool."""
@@ -102,6 +121,34 @@ class TestProxyPool:
         mocker.patch("src.utils.proxy_pool.time.time", return_value=1000.0)
         pool.last_used = 1000.0
         assert pool.get_next_proxy() == "http://u1:p1@h1:1"
+
+    def test_first_call_returns_first_proxy(self, mocker: MockerFixture) -> None:
+        """Самый первый вызов отдаёт первый прокси пула, а не второй."""
+        mocker.patch.object(settings, "proxy_health_check", False)
+        pool = ProxyPool(
+            proxies=["http://u1:p1@h1:1", "http://u2:p2@h2:2", "http://u3:p3@h3:3"]
+        )
+        assert pool.get_next_proxy() == "http://u1:p1@h1:1"
+        assert pool.current_index == 0
+
+    def test_rotates_to_next_proxy_after_interval(self, mocker: MockerFixture) -> None:
+        """Через 5+ секунд после использования пул ротируется на следующий."""
+        mocker.patch.object(settings, "proxy_health_check", False)
+        pool = ProxyPool(proxies=["http://u1:p1@h1:1", "http://u2:p2@h2:2"])
+
+        mocker.patch("src.utils.proxy_pool.time.time", return_value=1000.0)
+        assert pool.get_next_proxy() == "http://u1:p1@h1:1"
+
+        mocker.patch("src.utils.proxy_pool.time.time", return_value=1010.0)
+        assert pool.get_next_proxy() == "http://u2:p2@h2:2"
+
+    def test_rotate_switches_proxy_immediately(self, mocker: MockerFixture) -> None:
+        """rotate() переключает прокси сразу, независимо от прошедшего времени."""
+        mocker.patch.object(settings, "proxy_health_check", False)
+        pool = ProxyPool(proxies=["http://u1:p1@h1:1", "http://u2:p2@h2:2"])
+        assert pool.get_next_proxy() == "http://u1:p1@h1:1"
+        assert pool.rotate() == "http://u2:p2@h2:2"
+        assert pool.current_index == 1
 
     def test_rotate_returns_next_proxy(self, pool: ProxyPool) -> None:
         """rotate() принудительно переключает прокси по кругу."""

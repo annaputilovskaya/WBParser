@@ -53,6 +53,7 @@ class TestMain:
             [mock_product]
         )
         patched_main.logger.info.assert_any_call("Парсинг успешно завершён.")
+        patched_main.proxy_pool_cls.assert_called_once_with()
         patched_main.client_cls.assert_called_once_with(
             proxy_pool=patched_main.proxy_pool_cls.return_value
         )
@@ -104,4 +105,25 @@ class TestMain:
         assert (
             patched_main.exporter_cls.return_value.export_filtered_catalog.call_count
             == 1
+        )
+
+    def test_main_exports_partial_products_on_keyboard_interrupt(
+        self, patched_main: MagicMock, mock_product: Product
+    ) -> None:
+        """При прерывании парсинга частичные товары экспортируются без ошибки."""
+        parser = patched_main.parser_cls.return_value
+        parser.products = [mock_product]
+        parser.parse.side_effect = KeyboardInterrupt
+
+        assert main() is None
+
+        patched_main.exporter_cls.return_value.export_full_catalog.assert_called_once_with(
+            [mock_product]
+        )
+        patched_main.exporter_cls.return_value.export_filtered_catalog.assert_called_once_with(
+            [mock_product]
+        )
+        patched_main.logger.info.assert_any_call("Парсинг прерван пользователем.")
+        patched_main.logger.warning.assert_any_call(
+            "Экспорт частично собранных товаров: %d", 1
         )
