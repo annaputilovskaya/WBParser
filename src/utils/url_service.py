@@ -5,10 +5,12 @@ import logging
 import os
 import time
 from pathlib import Path
+from uuid import uuid4
 
 import requests
 
 from src.config.app_settings import settings
+from src.utils.exceptions import BasketConfigError
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,8 @@ class BasketManager:
             Path: Путь settings.cache_dir/baskets.json (каталог создаётся).
         """
         cache_dir = Path(settings.cache_dir)
-        cache_dir.mkdir(parents=True, exist_ok=True)
+        if not cache_dir.exists():
+            cache_dir.mkdir(parents=True, exist_ok=True)
         return cache_dir / cls.CACHE_FILENAME
 
     @classmethod
@@ -47,18 +50,76 @@ class BasketManager:
         """
         try:
             config = cls._get_config()
-            # Получаем список хостов из структуры JSON
-            route_map = config.get("origin", {}).get("mediabasket_route_map", [])
-            if not route_map:
-                return "01"
+            return cls._extract_basket(config, vol)
+        except BasketConfigError as e:
+            logger.warning("Не удалось определить номер корзины для vol=%s: %s", vol, e)
+        return "01"
 
-            hosts = route_map[0].get("hosts", [])
+    @staticmethod
+    def _extract_basket(config: dict, vol: int) -> str:
+        """Извлекает номер корзины для vol из конфигурации upstreams.
+
+        Args:
+            config (dict): Конфигурация upstreams.
+            vol (int): Составляющая артикула (article // 100000).
+
+        Returns:
+            str: Номер корзины (например, '01', '12'). По умолчанию '01'.
+
+        Raises:
+            BasketConfigError: Конфигурация имеет некорректную структуру.
+        """
+        if not isinstance(config, dict):
+            raise BasketConfigError("Конфигурация корзин имеет некорректный формат")
+
+        origin = config.get("origin", {})
+        if not isinstance(origin, dict):
+            raise BasketConfigError(
+                "Поле origin конфигурации корзин имеет неверный тип"
+            )
+
+        route_map = origin.get("mediabasket_route_map", [])
+        if not route_map:
+            return "01"
+        if not isinstance(route_map, list):
+            raise BasketConfigError(
+                "Поле mediabasket_route_map конфигурации корзин имеет неверный тип"
+            )
+
+        for route in route_map:
+            if not isinstance(route, dict):
+                raise BasketConfigError(
+                    "Запись mediabasket_route_map конфигурации корзин имеет неверный тип"
+                )
+            if "hosts" not in route:
+                raise BasketConfigError(
+                    "Запись mediabasket_route_map конфигурации корзин не содержит hosts"
+                )
+            hosts = route["hosts"]
+            if not isinstance(hosts, list):
+                raise BasketConfigError(
+                    "Поле hosts конфигурации корзин имеет неверный тип"
+                )
+
             for entry in hosts:
-                if entry["vol_range_from"] <= vol <= entry["vol_range_to"]:
+                if not isinstance(entry, dict):
+                    raise BasketConfigError(
+                        "Запись hosts конфигурации корзин имеет неверный тип"
+                    )
+                vol_from = entry.get("vol_range_from")
+                vol_to = entry.get("vol_range_to")
+                host = entry.get("host")
+                if not isinstance(vol_from, int) or not isinstance(vol_to, int):
+                    raise BasketConfigError(
+                        "Границы диапазона vol в конфигурации корзин должны быть целыми"
+                    )
+                if not isinstance(host, str):
+                    raise BasketConfigError(
+                        "Поле host конфигурации корзин должно быть строкой"
+                    )
+                if vol_from <= vol <= vol_to:
                     # Извлекаем '01' из 'basket-01.wbbasket.ru'
-                    return entry["host"].split(".")[0].split("-")[-1]
-        except (KeyError, IndexError, TypeError):
-            logger.exception("Не удалось определить номер корзины для vol=%s", vol)
+                    return host.split(".")[0].split("-")[-1]
         return "01"
 
     @classmethod
@@ -67,41 +128,52 @@ class BasketManager:
 
         Returns:
             dict: Словарь с конфигурацией upstreams.
-        """
-        path = cls._cache_path()
-        if not os.path.exists(path) or (
-            time.time() - os.path.getmtime(path) > cls.CACHE_HOURS * 3600
-        ):
-            cls._update_config()
 
+        Raises:
+            BasketConfigError: Конфигурацию не удалось получить или разобрать.
+        """
         try:
+            path = cls._cache_path()
+            if not os.path.exists(path) or (
+                time.time() - os.path.getmtime(path) > cls.CACHE_HOURS * 3600
+            ):
+                cls._update_config()
+
             with open(path, encoding="utf-8") as f:
-                return json.load(f)
-        except (OSError, json.JSONDecodeError):
-            logger.exception("Ошибка чтения кэша корзин: %s", path)
-            return {}
+                config = json.load(f)
+        except (OSError, ValueError) as e:
+            raise BasketConfigError("Не удалось получить конфигурацию корзин") from e
+
+        if not isinstance(config, dict):
+            raise BasketConfigError("Конфигурация корзин имеет некорректный формат")
+        return config
 
     @classmethod
     def _update_config(cls) -> None:
         """Скачивает актуальный JSON с сервера и сохраняет его атомарно."""
-        path = cls._cache_path()
         try:
             response = requests.get(cls.URL, timeout=10)
             response.raise_for_status()
             data = response.json()
         except (requests.exceptions.RequestException, ValueError):
-            logger.exception("Ошибка при обновлении конфигурации корзин")
+            logger.warning("Ошибка при обновлении конфигурации корзин")
             return
 
-        tmp_path = path.with_name(path.name + ".tmp")
+        tmp_path: Path | None = None
         try:
+            path = cls._cache_path()
+            # Временный файл создаётся рядом с целевым (тот же том) и уникален
+            # для каждой записи, чтобы параллельные обновления не конфликтовали.
+            tmp_path = path.with_name(f"{path.name}.{uuid4().hex}.tmp")
             with open(tmp_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
             os.replace(tmp_path, path)
         except OSError:
-            logger.exception("Ошибка записи кэша корзин")
+            logger.warning("Ошибка записи кэша корзин")
+            if tmp_path is not None:
+                tmp_path.unlink(missing_ok=True)
             return
         logger.info("Конфигурация корзин успешно обновлена")
 
