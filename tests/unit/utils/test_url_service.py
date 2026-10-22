@@ -8,6 +8,7 @@ from unittest.mock import Mock, mock_open
 import pytest
 import requests
 from pytest_mock import MockerFixture
+from src.config.app_settings import settings
 from src.utils.url_service import BasketManager, UrlService
 
 
@@ -109,7 +110,7 @@ class TestBasketManager:
         mocker.patch.object(
             BasketManager,
             "_get_config",
-            side_effect=Exception("Произвольная ошибка"),
+            side_effect=KeyError("Ошибка чтения"),
         )
         # Метод должен вернуть "01" по умолчанию
         assert BasketManager.get_basket_number(5) == "01"
@@ -120,7 +121,7 @@ class TestBasketManager:
         """Проверяет чтение конфигурации из свежего файла."""
         config_data = {"origin": {"mediabasket_route_map": []}}
         mock_file_path.write_text(json.dumps(config_data), encoding="utf-8")
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         mocker.patch("os.path.getmtime", return_value=time.time() - 3600)  # 1 час назад
         mock_update = mocker.patch.object(BasketManager, "_update_config")
@@ -134,7 +135,7 @@ class TestBasketManager:
         """Проверяет обновление конфигурации при устаревшем файле."""
         config_data = {"origin": {"mediabasket_route_map": []}}
         mock_file_path.write_text(json.dumps(config_data), encoding="utf-8")
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         # Время модификации больше CACHE_HOURS
         mocker.patch(
@@ -150,7 +151,7 @@ class TestBasketManager:
         self, mock_file_path: Path, mocker: MockerFixture
     ) -> None:
         """Проверяет обновление конфигурации при отсутствии файла."""
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=False)
         mock_update = mocker.patch.object(BasketManager, "_update_config")
         # После обновления файл будет создан, но мы мокаем open, чтобы вернуть пустой dict
@@ -163,37 +164,72 @@ class TestBasketManager:
         self, mock_file_path: Path, mocker: MockerFixture
     ) -> None:
         """Проверяет возврат пустого словаря при ошибке чтения файла."""
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         mocker.patch("os.path.getmtime", return_value=time.time() - 3600)
         # Имитируем исключение при открытии файла
-        mocker.patch("builtins.open", side_effect=Exception("Ошибка чтения"))
+        mocker.patch("builtins.open", side_effect=OSError("Ошибка чтения"))
         result = BasketManager._get_config()
         assert result == {}
 
-    def test_update_config_success(self, mocker: MockerFixture) -> None:
-        """Проверяет успешное обновление конфигурации с сервера."""
+    def test_update_config_success(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет атомарную запись конфигурации с сервера."""
         mock_response = Mock(spec=requests.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {"origin": {"mediabasket_route_map": []}}
         mocker.patch("requests.get", return_value=mock_response)
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mock_open_file = mock_open()
         mocker.patch("builtins.open", mock_open_file)
         mocker.patch("json.dump")
+        mocker.patch("os.fsync")
+        mock_replace = mocker.patch("os.replace")
         mock_logger = mocker.patch("src.utils.url_service.logger.info")
+
         BasketManager._update_config()
+
         requests.get.assert_called_once_with(BasketManager.URL, timeout=10)
-        mock_open_file.assert_called_once_with(
-            BasketManager.FILE_PATH, "w", encoding="utf-8"
-        )
+        tmp_path = mock_file_path.with_name(mock_file_path.name + ".tmp")
+        mock_open_file.assert_called_once_with(tmp_path, "w", encoding="utf-8")
+        mock_replace.assert_called_once_with(tmp_path, mock_file_path)
         mock_logger.assert_called_once_with("Конфигурация корзин успешно обновлена")
+
+    def test_update_config_write_error(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что при ошибке записи кэш не подменяется."""
+        mock_response = Mock(spec=requests.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"origin": {"mediabasket_route_map": []}}
+        mocker.patch("requests.get", return_value=mock_response)
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mocker.patch("builtins.open", side_effect=OSError("Ошибка записи"))
+        mock_replace = mocker.patch("os.replace")
+        mock_logger = mocker.patch("src.utils.url_service.logger.exception")
+
+        BasketManager._update_config()
+
+        mock_replace.assert_not_called()
+        mock_logger.assert_called_once()
+        assert "Ошибка записи кэша корзин" in mock_logger.call_args[0][0]
+
+    def test_cache_path_uses_settings_cache_dir(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Путь кэша строится из settings.cache_dir, каталог создаётся."""
+        mocker.patch.object(settings, "cache_dir", str(tmp_path / "cache"))
+        path = BasketManager._cache_path()
+        assert path == tmp_path / "cache" / "baskets.json"
+        assert path.parent.exists()
 
     def test_update_config_http_error(self, mocker: MockerFixture) -> None:
         """Проверяет обработку HTTP ошибки при обновлении конфигурации."""
         mock_response = Mock(spec=requests.Response)
         mock_response.raise_for_status.side_effect = requests.HTTPError("404")
         mocker.patch("requests.get", return_value=mock_response)
-        mock_logger = mocker.patch("src.utils.url_service.logger.error")
+        mock_logger = mocker.patch("src.utils.url_service.logger.exception")
         BasketManager._update_config()
         mock_logger.assert_called_once()
         # Убедимся, что сообщение об ошибке содержит текст
@@ -203,7 +239,7 @@ class TestBasketManager:
     def test_update_config_network_exception(self, mocker: MockerFixture) -> None:
         """Проверяет обработку сетевого исключения (например, timeout)."""
         mocker.patch("requests.get", side_effect=requests.Timeout("Таймаут"))
-        mock_logger = mocker.patch("src.utils.url_service.logger.error")
+        mock_logger = mocker.patch("src.utils.url_service.logger.exception")
         BasketManager._update_config()
         mock_logger.assert_called_once()
         call_args = mock_logger.call_args[0]

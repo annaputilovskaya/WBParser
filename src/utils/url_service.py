@@ -4,8 +4,11 @@ import json
 import logging
 import os
 import time
+from pathlib import Path
 
 import requests
+
+from src.config.app_settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +20,20 @@ class BasketManager:
     артикулов по серверам (баскетам).
     """
 
-    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-    FILE_PATH = os.path.join(BASE_DIR, "baskets.json")
+    CACHE_FILENAME = "baskets.json"
     URL = "https://cdn.wbbasket.ru/api/v3/upstreams"
     CACHE_HOURS = 24
+
+    @classmethod
+    def _cache_path(cls) -> Path:
+        """Возвращает путь к файлу кэша корзин.
+
+        Returns:
+            Path: Путь settings.cache_dir/baskets.json (каталог создаётся).
+        """
+        cache_dir = Path(settings.cache_dir)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        return cache_dir / cls.CACHE_FILENAME
 
     @classmethod
     def get_basket_number(cls, vol: int) -> str:
@@ -44,8 +57,8 @@ class BasketManager:
                 if entry["vol_range_from"] <= vol <= entry["vol_range_to"]:
                     # Извлекаем '01' из 'basket-01.wbbasket.ru'
                     return entry["host"].split(".")[0].split("-")[-1]
-        except (KeyError, IndexError, Exception):
-            pass
+        except (KeyError, IndexError, TypeError):
+            logger.exception("Не удалось определить номер корзины для vol=%s", vol)
         return "01"
 
     @classmethod
@@ -55,28 +68,42 @@ class BasketManager:
         Returns:
             dict: Словарь с конфигурацией upstreams.
         """
-        if not os.path.exists(cls.FILE_PATH) or (
-            time.time() - os.path.getmtime(cls.FILE_PATH) > cls.CACHE_HOURS * 3600
+        path = cls._cache_path()
+        if not os.path.exists(path) or (
+            time.time() - os.path.getmtime(path) > cls.CACHE_HOURS * 3600
         ):
             cls._update_config()
 
         try:
-            with open(cls.FILE_PATH, encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except (OSError, json.JSONDecodeError):
+            logger.exception("Ошибка чтения кэша корзин: %s", path)
             return {}
 
     @classmethod
     def _update_config(cls) -> None:
-        """Скачивает актуальный JSON с сервера и сохраняет его локально."""
+        """Скачивает актуальный JSON с сервера и сохраняет его атомарно."""
+        path = cls._cache_path()
         try:
             response = requests.get(cls.URL, timeout=10)
             response.raise_for_status()
-            with open(cls.FILE_PATH, "w", encoding="utf-8") as f:
-                json.dump(response.json(), f, ensure_ascii=False, indent=2)
-            logger.info("Конфигурация корзин успешно обновлена")
-        except Exception:
-            logger.exception("Ошибка при обновлении конфигурации корзин.")
+            data = response.json()
+        except (requests.exceptions.RequestException, ValueError):
+            logger.exception("Ошибка при обновлении конфигурации корзин")
+            return
+
+        tmp_path = path.with_name(path.name + ".tmp")
+        try:
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+        except OSError:
+            logger.exception("Ошибка записи кэша корзин")
+            return
+        logger.info("Конфигурация корзин успешно обновлена")
 
 
 class UrlService:
