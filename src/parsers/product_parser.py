@@ -144,7 +144,7 @@ class ProductDetailParser(IDetailParser):
         if photo_count:
             product.image_count = photo_count
 
-        product.image_urls = "\u200b" + ", ".join(
+        product.image_urls = ", ".join(
             UrlService.generate_image_urls(product.article, product.image_count)
         )
 

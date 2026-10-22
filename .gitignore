@@ -21,6 +21,8 @@ poetry.toml
 .cache
 .pytest_cache/
 .mypy_cache/
+data/
+*.tmp
 
 # Промежуточные результаты работы парсера (данные)
 *.csv

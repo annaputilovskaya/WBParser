@@ -1,13 +1,15 @@
 """Юнит-тесты для API клиента Wildberries."""
 
-import json
+import logging
 from unittest.mock import Mock
 
 import pytest
 import requests
+from _pytest.logging import LogCaptureFixture
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
+from src.utils.exceptions import TokenFetchError
 
 
 class TestIApiClient:
@@ -41,6 +43,22 @@ class TestWbApiClient:
         )
         mocker.patch("time.sleep", return_value=None)
         client = WbApiClient()
+        client.session = mocker.Mock()
+        return client
+
+    @pytest.fixture
+    def api_client_with_proxy(
+        self, mocker: MockerFixture, mock_token_manager: Mock
+    ) -> WbApiClient:
+        """Клиент с замоканным пулом прокси."""
+        mocker.patch(
+            "src.parsers.api_client.TokenManager", return_value=mock_token_manager
+        )
+        mocker.patch("time.sleep", return_value=None)
+        proxy_pool = mocker.Mock()
+        proxy_pool.get_next_proxy.return_value = "http://proxy1:1"
+        proxy_pool.rotate.return_value = "http://proxy2:2"
+        client = WbApiClient(proxy_pool=proxy_pool)
         client.session = mocker.Mock()
         return client
 
@@ -95,7 +113,9 @@ class TestWbApiClient:
         """Проверяет обработку ошибки декодирования JSON в _make_request."""
         mock_response = mocker.Mock()
         mock_response.status_code = 200
-        mock_response.json.side_effect = json.JSONDecodeError("Invalid JSON", "", 0)
+        mock_response.json.side_effect = requests.exceptions.JSONDecodeError(
+            "Invalid JSON", "", 0
+        )
         api_client.session.get.return_value = mock_response
 
         result = api_client._make_request("https://example.com", {})
@@ -199,3 +219,210 @@ class TestWbApiClient:
         mock_make_request.return_value = None
         result = api_client.get_product_details(1234567)
         assert result is None
+
+    def test_make_request_uses_proxy(
+        self, api_client_with_proxy: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Прокси из пула передаётся в HTTP-запрос."""
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"ok": True}
+        api_client_with_proxy.session.get.return_value = mock_response
+
+        api_client_with_proxy._make_request("https://example.com", {})
+
+        api_client_with_proxy.proxy_pool.get_next_proxy.assert_called_once()
+        kwargs = api_client_with_proxy.session.get.call_args.kwargs
+        assert kwargs["proxies"] == {
+            "http": "http://proxy1:1",
+            "https": "http://proxy1:1",
+        }
+
+    def test_make_request_rotates_proxy_on_network_error(
+        self, api_client_with_proxy: WbApiClient
+    ) -> None:
+        """При сетевой ошибке прокси ротируется и повторяет запрос."""
+        api_client_with_proxy.session.get.side_effect = (
+            requests.exceptions.RequestException("network")
+        )
+
+        result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        assert api_client_with_proxy.proxy_pool.rotate.call_count == (
+            settings.max_retries + 1
+        )
+        first_kwargs = api_client_with_proxy.session.get.call_args_list[0].kwargs
+        assert first_kwargs["proxies"] == {
+            "http": "http://proxy1:1",
+            "https": "http://proxy1:1",
+        }
+        last_kwargs = api_client_with_proxy.session.get.call_args.kwargs
+        assert last_kwargs["proxies"] == {
+            "http": "http://proxy2:2",
+            "https": "http://proxy2:2",
+        }
+
+    def test_search_products_rotates_user_agent(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """UA обновляется при каждом запросе страницы."""
+        mocker.patch.object(api_client, "_update_user_agent_header")
+        mocker.patch.object(
+            api_client,
+            "_make_request",
+            return_value={"products": [{"id": 1}, {"id": 2}]},
+        )
+
+        api_client.search_products("тест", page=1)
+
+        api_client._update_user_agent_header.assert_called_once()
+
+    def test_search_products_handles_token_fetch_error(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Ошибка получения токена не роняет парсинг: ретраи, затем None."""
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=TokenFetchError("нет токена")
+        )
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        assert api_client._make_request.call_count == settings.max_retries + 1
+
+    def test_search_products_token_fetch_error_logged_without_traceback(
+        self,
+        api_client: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Доменная ошибка токена логируется как warning без трассировки."""
+        mocker.patch.object(settings, "max_retries", 0)
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=TokenFetchError("нет токена")
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        warnings = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING
+            and "Не удалось получить токен" in rec.getMessage()
+        ]
+        assert len(warnings) == 1
+        assert "нет токена" in warnings[0].getMessage()
+        assert warnings[0].exc_info is None
+        errors = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.ERROR
+            and "Ошибка при выполнении запроса." in rec.getMessage()
+        ]
+        assert errors == []
+
+    def test_search_products_request_exception_logged_with_traceback(
+        self,
+        api_client: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Транспортная ошибка логируется как ERROR с трассировкой."""
+        mocker.patch.object(settings, "max_retries", 0)
+        mocker.patch.object(
+            api_client,
+            "_make_request",
+            side_effect=requests.exceptions.RequestException("network down"),
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        errors = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.ERROR
+            and "Ошибка при выполнении запроса." in rec.getMessage()
+        ]
+        assert len(errors) == 1
+        assert errors[0].exc_info is not None
+        warnings = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.WARNING
+            and "Не удалось получить токен" in rec.getMessage()
+        ]
+        assert warnings == []
+
+    def test_make_request_invalid_url_does_not_log_proxy_secret(
+        self,
+        api_client_with_proxy: WbApiClient,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """InvalidURL с паролем не попадает в логи с трейсом/текстом."""
+        api_client_with_proxy.session.get.side_effect = requests.exceptions.InvalidURL(
+            "Failed to parse: http://user:secret@proxy:8080"
+        )
+
+        with caplog.at_level("DEBUG"):
+            result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        for rec in caplog.records:
+            assert "secret" not in rec.getMessage()
+            assert rec.exc_info is None
+
+    def test_search_products_handles_value_error_without_retry(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Неожиданная ошибка не ретраится и не роняет run."""
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=ValueError("bad data")
+        )
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        assert api_client._make_request.call_count == 1
+
+    def test_search_products_handles_non_dict_response(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Неожиданный формат ответа (не словарь) не роняет парсинг."""
+        mock_response = mocker.Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = [{"id": 1}, {"id": 2}]
+        api_client.session.get.return_value = mock_response
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+
+    def test_request_failure_logs_single_error_record(
+        self,
+        api_client_with_proxy: WbApiClient,
+        mocker: MockerFixture,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """Одна ошибка запроса даёт одну запись ERROR (без дубля от _rotate_proxy)."""
+        mocker.patch.object(settings, "max_retries", 0)
+        api_client_with_proxy.session.get.side_effect = (
+            requests.exceptions.RequestException("network down")
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert "Ошибка сети при запросе" in errors[0].getMessage()
+        rotations = [
+            rec for rec in caplog.records if "ротация прокси" in rec.getMessage()
+        ]
+        assert rotations
+        assert all(rec.levelno == logging.DEBUG for rec in rotations)

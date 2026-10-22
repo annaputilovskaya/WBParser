@@ -115,7 +115,8 @@ class TestProductDetailParser:
             enriched = parser.enrich_product(mock_product, details)
         assert enriched.image_count == 5
         assert "img0.jpg" in enriched.image_urls
-        assert enriched.image_urls.startswith("\u200b")
+        assert not enriched.image_urls.startswith("\u200b")
+        assert enriched.image_urls.startswith("img0.jpg")
 
     def test_enrich_product_partial_details(
         self, parser: ProductDetailParser, mock_product: Product

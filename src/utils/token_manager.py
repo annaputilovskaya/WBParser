@@ -8,6 +8,7 @@ from fake_useragent import UserAgent
 from seleniumbase import Driver
 
 from src.config.app_settings import settings
+from src.utils.exceptions import TokenFetchError
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +28,7 @@ class TokenManager:
             Строка с токеном.
 
         Raises:
-            RuntimeError: Если не удалось получить токен после
+            TokenFetchError: Если не удалось получить токен после
                 settings.token_max_retries попыток.
         """
         ttl = settings.token_ttl_seconds
@@ -71,7 +72,7 @@ class TokenManager:
                                 return token
                     if _attempt < settings.token_max_retries - 1:
                         time.sleep(settings.token_retry_delay)
-                raise RuntimeError(
+                raise TokenFetchError(
                     f"Не удалось получить токен после "
                     f"{settings.token_max_retries} попыток"
                 )

@@ -5,6 +5,7 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 from src.data_models.product import Product
 from src.parsers.api_client import WbApiClient
 from src.parsers.search_parser import SearchParser
@@ -180,7 +181,9 @@ class TestSearchParserIntegration:
         mock_session: Mock,
     ) -> None:
         """Проверяет обработку ошибок API в интеграционном сценарии."""
-        mock_session.get.side_effect = Exception("Сетевая ошибка")
+        mock_session.get.side_effect = requests.exceptions.RequestException(
+            "Сетевая ошибка"
+        )
 
         with patch.object(
             api_client.token_manager, "get_token", return_value="fake_token"

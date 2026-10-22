@@ -1,14 +1,29 @@
 """Юнит-тесты для сервиса URL и менеджера корзин."""
 
 import json
+import logging
+import re
 import time
+import traceback
+from collections.abc import Iterator
 from pathlib import Path
 from unittest.mock import Mock, mock_open
 
 import pytest
 import requests
 from pytest_mock import MockerFixture
+from src.config.app_settings import settings
+from src.utils import url_service
+from src.utils.exceptions import BasketConfigError
 from src.utils.url_service import BasketManager, UrlService
+
+
+@pytest.fixture(autouse=True)
+def reset_basket_error_latch() -> Iterator[None]:
+    """Сбрасывает глобальный защёлок ошибок корзины до и после каждого теста."""
+    url_service._reported_basket_error = None
+    yield
+    url_service._reported_basket_error = None
 
 
 class TestBasketManager:
@@ -109,7 +124,7 @@ class TestBasketManager:
         mocker.patch.object(
             BasketManager,
             "_get_config",
-            side_effect=Exception("Произвольная ошибка"),
+            side_effect=BasketConfigError("Ошибка чтения"),
         )
         # Метод должен вернуть "01" по умолчанию
         assert BasketManager.get_basket_number(5) == "01"
@@ -120,7 +135,7 @@ class TestBasketManager:
         """Проверяет чтение конфигурации из свежего файла."""
         config_data = {"origin": {"mediabasket_route_map": []}}
         mock_file_path.write_text(json.dumps(config_data), encoding="utf-8")
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         mocker.patch("os.path.getmtime", return_value=time.time() - 3600)  # 1 час назад
         mock_update = mocker.patch.object(BasketManager, "_update_config")
@@ -134,7 +149,7 @@ class TestBasketManager:
         """Проверяет обновление конфигурации при устаревшем файле."""
         config_data = {"origin": {"mediabasket_route_map": []}}
         mock_file_path.write_text(json.dumps(config_data), encoding="utf-8")
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         # Время модификации больше CACHE_HOURS
         mocker.patch(
@@ -150,7 +165,7 @@ class TestBasketManager:
         self, mock_file_path: Path, mocker: MockerFixture
     ) -> None:
         """Проверяет обновление конфигурации при отсутствии файла."""
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=False)
         mock_update = mocker.patch.object(BasketManager, "_update_config")
         # После обновления файл будет создан, но мы мокаем open, чтобы вернуть пустой dict
@@ -159,55 +174,351 @@ class TestBasketManager:
         mock_update.assert_called_once()
         assert result == {}
 
-    def test_get_config_file_read_exception_returns_empty_dict(
+    def test_get_config_file_read_exception_raises_basket_config_error(
         self, mock_file_path: Path, mocker: MockerFixture
     ) -> None:
-        """Проверяет возврат пустого словаря при ошибке чтения файла."""
-        mocker.patch.object(BasketManager, "FILE_PATH", str(mock_file_path))
+        """Проверяет, что ошибка чтения файла превращается в BasketConfigError."""
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
         mocker.patch("os.path.exists", return_value=True)
         mocker.patch("os.path.getmtime", return_value=time.time() - 3600)
         # Имитируем исключение при открытии файла
-        mocker.patch("builtins.open", side_effect=Exception("Ошибка чтения"))
-        result = BasketManager._get_config()
-        assert result == {}
+        mocker.patch("builtins.open", side_effect=OSError("Ошибка чтения"))
+        with pytest.raises(BasketConfigError):
+            BasketManager._get_config()
 
-    def test_update_config_success(self, mocker: MockerFixture) -> None:
-        """Проверяет успешное обновление конфигурации с сервера."""
+    def test_update_config_success(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет атомарную запись конфигурации с сервера."""
+        mock_response = Mock(spec=requests.Response)
+        mock_response.status_code = 200
+        data = {"origin": {"mediabasket_route_map": []}}
+        mock_response.json.return_value = data
+        mocker.patch("requests.get", return_value=mock_response)
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mock_open_file = mock_open()
+        mocker.patch("builtins.open", mock_open_file)
+        mock_dump = mocker.patch("json.dump")
+        mock_fsync = mocker.patch("os.fsync")
+        mock_replace = mocker.patch("os.replace")
+        mock_logger = mocker.patch("src.utils.url_service.logger.info")
+
+        BasketManager._update_config()
+
+        requests.get.assert_called_once_with(BasketManager.URL, timeout=10)
+        opened_path = mock_open_file.call_args[0][0]
+        # Временный файл создаётся в том же каталоге и имеет уникальное имя
+        assert opened_path.parent == mock_file_path.parent
+        assert re.fullmatch(r"baskets\.json\.[0-9a-f]{32}\.tmp", opened_path.name)
+        mock_replace.assert_called_once_with(opened_path, mock_file_path)
+        mock_fsync.assert_called_once()
+        mock_dump.assert_called_once()
+        assert mock_dump.call_args[0][0] == data
+        assert mock_dump.call_args[1] == {"ensure_ascii": False, "indent": 2}
+        mock_logger.assert_called_once_with("Конфигурация корзин успешно обновлена")
+
+    def test_update_config_write_error(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что при ошибке записи кэш не подменяется."""
         mock_response = Mock(spec=requests.Response)
         mock_response.status_code = 200
         mock_response.json.return_value = {"origin": {"mediabasket_route_map": []}}
         mocker.patch("requests.get", return_value=mock_response)
-        mock_open_file = mock_open()
-        mocker.patch("builtins.open", mock_open_file)
-        mocker.patch("json.dump")
-        mock_logger = mocker.patch("src.utils.url_service.logger.info")
-        BasketManager._update_config()
-        requests.get.assert_called_once_with(BasketManager.URL, timeout=10)
-        mock_open_file.assert_called_once_with(
-            BasketManager.FILE_PATH, "w", encoding="utf-8"
-        )
-        mock_logger.assert_called_once_with("Конфигурация корзин успешно обновлена")
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mocker.patch("builtins.open", side_effect=OSError("Ошибка записи"))
+        mock_replace = mocker.patch("os.replace")
+        mock_logger = mocker.patch("src.utils.url_service.logger.warning")
 
-    def test_update_config_http_error(self, mocker: MockerFixture) -> None:
+        BasketManager._update_config()
+
+        mock_replace.assert_not_called()
+        mock_logger.assert_called_once()
+        assert "Ошибка записи кэша корзин" in mock_logger.call_args[0][0]
+
+    def test_update_config_replace_failure_removes_tmp_file(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что сбой os.replace не оставляет .tmp и не трогает кэш."""
+        original_content = '{"origin": {}}'
+        mock_file_path.write_text(original_content, encoding="utf-8")
+        mock_response = Mock(spec=requests.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"origin": {"mediabasket_route_map": []}}
+        mocker.patch("requests.get", return_value=mock_response)
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mocker.patch("os.replace", side_effect=OSError("Ошибка замены"))
+
+        BasketManager._update_config()
+
+        assert list(mock_file_path.parent.glob("*.tmp")) == []
+        assert mock_file_path.read_text(encoding="utf-8") == original_content
+
+    def test_cache_path_uses_settings_cache_dir(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Путь кэша строится из settings.cache_dir, каталог создаётся."""
+        mocker.patch.object(settings, "cache_dir", str(tmp_path / "cache"))
+        path = BasketManager._cache_path()
+        assert path == tmp_path / "cache" / "baskets.json"
+        assert path.parent.exists()
+
+    def test_extract_basket_rejects_non_dict_config(self) -> None:
+        """Проверяет, что конфигурация не-словарём отклоняется доменной ошибкой."""
+        with pytest.raises(BasketConfigError):
+            BasketManager._extract_basket([], 5)
+
+    def test_get_basket_number_with_corrupted_cache(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что битый кэш не ломает получение номера корзины."""
+        mock_file_path.write_bytes(b"\xff\xfe\x00broken")
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mock_update = mocker.patch.object(BasketManager, "_update_config")
+
+        assert BasketManager.get_basket_number(5) == "01"
+        mock_update.assert_not_called()
+
+    def test_get_basket_number_with_non_dict_cache(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что кэш-массив не ломает получение номера корзины."""
+        mock_file_path.write_text("[1, 2, 3]", encoding="utf-8")
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mocker.patch.object(BasketManager, "_update_config")
+
+        assert BasketManager.get_basket_number(5) == "01"
+
+    def test_get_basket_number_with_cache_dir_error(
+        self, tmp_path: Path, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что ошибка создания каталога кэша не ломает метод."""
+        mocker.patch.object(settings, "cache_dir", str(tmp_path / "cache"))
+        mocker.patch.object(Path, "mkdir", side_effect=PermissionError("Нет прав"))
+
+        assert BasketManager.get_basket_number(5) == "01"
+
+    def test_update_config_http_error(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
         """Проверяет обработку HTTP ошибки при обновлении конфигурации."""
         mock_response = Mock(spec=requests.Response)
         mock_response.raise_for_status.side_effect = requests.HTTPError("404")
         mocker.patch("requests.get", return_value=mock_response)
-        mock_logger = mocker.patch("src.utils.url_service.logger.error")
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mock_logger = mocker.patch("src.utils.url_service.logger.warning")
         BasketManager._update_config()
         mock_logger.assert_called_once()
         # Убедимся, что сообщение об ошибке содержит текст
         call_args = mock_logger.call_args[0]
         assert "Ошибка при обновлении конфигурации корзин" in call_args[0]
 
-    def test_update_config_network_exception(self, mocker: MockerFixture) -> None:
+    def test_update_config_network_exception(
+        self, mock_file_path: Path, mocker: MockerFixture
+    ) -> None:
         """Проверяет обработку сетевого исключения (например, timeout)."""
         mocker.patch("requests.get", side_effect=requests.Timeout("Таймаут"))
-        mock_logger = mocker.patch("src.utils.url_service.logger.error")
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mock_logger = mocker.patch("src.utils.url_service.logger.warning")
         BasketManager._update_config()
         mock_logger.assert_called_once()
         call_args = mock_logger.call_args[0]
         assert "Ошибка при обновлении конфигурации корзин" in call_args[0]
+
+    def test_update_config_warning_contains_cause(
+        self,
+        mock_file_path: Path,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """В предупреждении об ошибке обновления указан текст причины."""
+        mocker.patch("requests.get", side_effect=requests.Timeout("Таймаут соединения"))
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+
+        with caplog.at_level(logging.WARNING):
+            BasketManager._update_config()
+
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "Ошибка при обновлении конфигурации корзин" in warnings[0].getMessage()
+        assert "Таймаут соединения" in warnings[0].getMessage()
+
+    def test_update_config_write_warning_contains_cause(
+        self,
+        mock_file_path: Path,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """В предупреждении об ошибке записи указан текст причины."""
+        mock_response = Mock(spec=requests.Response)
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"origin": {"mediabasket_route_map": []}}
+        mocker.patch("requests.get", return_value=mock_response)
+        mocker.patch.object(BasketManager, "_cache_path", return_value=mock_file_path)
+        mocker.patch("builtins.open", side_effect=OSError("Нет места на диске"))
+
+        with caplog.at_level(logging.WARNING):
+            BasketManager._update_config()
+
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "Ошибка записи кэша корзин" in warnings[0].getMessage()
+        assert "Нет места на диске" in warnings[0].getMessage()
+
+    def test_basket_error_warning_logged_once(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Повторяющиеся одинаковые ошибки корзины не засоряют лог."""
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=BasketConfigError("Ошибка чтения"),
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            assert BasketManager.get_basket_number(5) == "01"
+            assert BasketManager.get_basket_number(6) == "01"
+
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert len(warnings) == 1
+        assert "Ошибка чтения" in warnings[0].getMessage()
+        debug_records = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.DEBUG and "Ошибка чтения" in rec.getMessage()
+        ]
+        assert len(debug_records) == 1
+
+    def test_basket_error_warning_repeated_after_change(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Смена текста ошибки снова поднимает уровень логирования до warning."""
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=[
+                BasketConfigError("Ошибка чтения"),
+                BasketConfigError("Другая ошибка"),
+            ],
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            BasketManager.get_basket_number(5)
+            BasketManager.get_basket_number(6)
+
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert len(warnings) == 2
+
+    def test_basket_error_latch_resets_on_success(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """После успеха защёлок сбрасывается: повторная ошибка снова warning."""
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=[
+                BasketConfigError("Ошибка чтения"),
+                {"origin": {"mediabasket_route_map": []}},
+                BasketConfigError("Ошибка чтения"),
+            ],
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            BasketManager.get_basket_number(5)
+            BasketManager.get_basket_number(6)
+            BasketManager.get_basket_number(7)
+
+        warnings = [rec for rec in caplog.records if rec.levelno == logging.WARNING]
+        assert len(warnings) == 2
+
+    def test_get_basket_number_handles_unexpected_error(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Неожиданная ошибка не ломает метод: возвращается корзина по умолчанию."""
+        mocker.patch.object(
+            BasketManager, "_get_config", side_effect=RuntimeError("boom")
+        )
+
+        with caplog.at_level(logging.ERROR):
+            assert BasketManager.get_basket_number(5) == "01"
+
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert (
+            "Непредвиденная ошибка при определении номера корзины"
+            in errors[0].getMessage()
+        )
+        assert errors[0].exc_info is not None
+
+    def test_unexpected_error_logged_once_with_vol(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Повторяющиеся неожиданные ошибки не засоряют лог трассировками.
+
+        Даже если текст исключения меняется, громкая запись создаётся один раз:
+        защёлка ключуется типом исключения, а не его текстом.
+        """
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=[RuntimeError("boom path=a"), RuntimeError("boom path=b")],
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            assert BasketManager.get_basket_number(5) == "01"
+            assert BasketManager.get_basket_number(6) == "01"
+
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].exc_info is not None
+        assert "vol=5" in errors[0].getMessage()
+        assert "boom path=a" in errors[0].getMessage()
+        assert "boom path=a" in "".join(traceback.format_exception(*errors[0].exc_info))
+
+        debug_records = [
+            rec
+            for rec in caplog.records
+            if rec.levelno == logging.DEBUG
+            and "Непредвиденная ошибка" in rec.getMessage()
+        ]
+        assert len(debug_records) == 1
+        assert debug_records[0].exc_info is None
+        assert "vol=6" in debug_records[0].getMessage()
+        assert "boom path=b" in debug_records[0].getMessage()
+
+    def test_unexpected_error_latch_resets_on_success(
+        self, mocker: MockerFixture, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """После успеха защёлок сбрасывается: новая ошибка снова с трассировкой."""
+        mocker.patch.object(
+            BasketManager,
+            "_get_config",
+            side_effect=[
+                RuntimeError("boom"),
+                {"origin": {"mediabasket_route_map": []}},
+                RuntimeError("boom"),
+            ],
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            BasketManager.get_basket_number(5)
+            BasketManager.get_basket_number(6)
+            BasketManager.get_basket_number(7)
+
+        errors = [rec for rec in caplog.records if rec.levelno == logging.ERROR]
+        assert len(errors) == 2
+        assert all(rec.exc_info is not None for rec in errors)
+
+    def test_get_config_type_error_raises_basket_config_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        """TypeError при построении пути превращается в BasketConfigError."""
+        mocker.patch.object(
+            BasketManager, "_cache_path", side_effect=TypeError("Некорректный путь")
+        )
+
+        with pytest.raises(BasketConfigError):
+            BasketManager._get_config()
 
 
 class TestUrlService:

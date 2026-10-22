@@ -5,6 +5,7 @@ import time
 import pytest
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
+from src.utils.exceptions import TokenFetchError, WbParserError
 from src.utils.token_manager import TokenManager
 
 
@@ -88,19 +89,24 @@ class TestTokenManager:
         assert token_manager.token == "final_token"
         assert result == "final_token"
 
-    def test_get_token_raises_runtime_error_after_max_retries(
+    def test_get_token_raises_token_fetch_error_after_max_retries(
         self, token_manager: TokenManager, mocker: MockerFixture
     ) -> None:
-        """Проверяет выброс RuntimeError после исчерпания попыток."""
+        """По исчерпании попыток выбрасывается TokenFetchError."""
         mocker.patch("time.sleep", return_value=None)
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {"cookies": []}
         with pytest.raises(
-            RuntimeError, match="Не удалось получить токен после 3 попыток"
+            TokenFetchError, match="Не удалось получить токен после 3 попыток"
         ):
             token_manager.get_token()
         mock_driver.quit.assert_called_once()
+
+    def test_token_fetch_error_is_domain_error(self) -> None:
+        """TokenFetchError наследует общий базовый класс доменных ошибок."""
+        assert issubclass(TokenFetchError, WbParserError)
+        assert issubclass(WbParserError, Exception)
 
     @pytest.mark.filterwarnings("ignore:Mocks returned by pytest-mock")
     def test_get_token_thread_safety(
@@ -157,7 +163,7 @@ class TestTokenManager:
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {}
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TokenFetchError):
             token_manager.get_token()
 
     def test_get_token_applies_no_sandbox_when_enabled(
@@ -188,7 +194,7 @@ class TestTokenManager:
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {"cookies": []}
         with pytest.raises(
-            RuntimeError, match="Не удалось получить токен после 2 попыток"
+            TokenFetchError, match="Не удалось получить токен после 2 попыток"
         ):
             token_manager.get_token()
         assert mock_driver.execute_cdp_cmd.call_count == 2
