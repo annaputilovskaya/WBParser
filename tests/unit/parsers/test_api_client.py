@@ -5,6 +5,7 @@ from unittest.mock import Mock
 
 import pytest
 import requests
+from _pytest.logging import LogCaptureFixture
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
@@ -228,6 +229,7 @@ class TestWbApiClient:
 
         api_client_with_proxy._make_request("https://example.com", {})
 
+        api_client_with_proxy.proxy_pool.get_next_proxy.assert_called_once()
         kwargs = api_client_with_proxy.session.get.call_args.kwargs
         assert kwargs["proxies"] == {
             "http": "http://proxy1:1",
@@ -248,6 +250,11 @@ class TestWbApiClient:
         assert api_client_with_proxy.proxy_pool.rotate.call_count == (
             settings.max_retries + 1
         )
+        first_kwargs = api_client_with_proxy.session.get.call_args_list[0].kwargs
+        assert first_kwargs["proxies"] == {
+            "http": "http://proxy1:1",
+            "https": "http://proxy1:1",
+        }
         last_kwargs = api_client_with_proxy.session.get.call_args.kwargs
         assert last_kwargs["proxies"] == {
             "http": "http://proxy2:2",
@@ -281,3 +288,34 @@ class TestWbApiClient:
 
         assert result is None
         assert api_client._make_request.call_count == settings.max_retries + 1
+
+    def test_make_request_invalid_url_does_not_log_proxy_secret(
+        self,
+        api_client_with_proxy: WbApiClient,
+        caplog: LogCaptureFixture,
+    ) -> None:
+        """InvalidURL с паролем не попадает в логи с трейсом/текстом."""
+        api_client_with_proxy.session.get.side_effect = requests.exceptions.InvalidURL(
+            "Failed to parse: http://user:secret@proxy:8080"
+        )
+
+        with caplog.at_level("DEBUG"):
+            result = api_client_with_proxy._make_request("https://example.com", {})
+
+        assert result is None
+        for rec in caplog.records:
+            assert "secret" not in rec.getMessage()
+            assert rec.exc_info is None
+
+    def test_search_products_handles_value_error_without_retry(
+        self, api_client: WbApiClient, mocker: MockerFixture
+    ) -> None:
+        """Неожиданная ошибка не ретраится и не роняет run."""
+        mocker.patch.object(
+            api_client, "_make_request", side_effect=ValueError("bad data")
+        )
+
+        result = api_client.search_products("тест", page=1)
+
+        assert result is None
+        assert api_client._make_request.call_count == 1

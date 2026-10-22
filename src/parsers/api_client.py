@@ -231,6 +231,25 @@ class WbApiClient(IApiClient):
 
                 return response.json()
 
+            except (
+                requests.exceptions.InvalidURL,
+                requests.exceptions.MissingSchema,
+                requests.exceptions.InvalidSchema,
+            ) as e:
+                logger.warning(
+                    "Ошибка сети при запросе к %s (%s).", url, type(e).__name__
+                )
+                proxies = self._rotate_proxy(e, url)
+                if attempt < max_retries:
+                    delay = (
+                        settings.retry_delays[attempt]
+                        if attempt < len(settings.retry_delays)
+                        else 2
+                    )
+                    logger.info("Повтор через %d секунд...", delay)
+                    time.sleep(delay)
+                else:
+                    return None
             except requests.exceptions.RequestException as e:
                 logger.exception("Ошибка сети при запросе к %s.", url)
                 proxies = self._rotate_proxy(e, url)
@@ -302,6 +321,9 @@ class WbApiClient(IApiClient):
                     )
                     time.sleep(delay)
                     continue
+                return None
+            except Exception:
+                logger.exception("Неожиданная ошибка при выполнении запроса.")
                 return None
 
             if result:
