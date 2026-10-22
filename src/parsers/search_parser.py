@@ -7,6 +7,7 @@ from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.api_client import IApiClient
 from src.parsers.product_parser import ProductDetailParser
+from src.utils.exceptions import ProductMappingError
 
 logger = logging.getLogger(__name__)
 
@@ -168,13 +169,33 @@ class SearchParser:
 
                 for item in batch:
                     try:
-                        products_in_range.append(Product.from_api_search_data(item))
-                    except Exception:
-                        logger.exception("Ошибка маппинга.")
+                        products_in_range.append(self._map_product(item))
+                    except ProductMappingError as e:
+                        logger.warning("Ошибка маппинга товара: %s", e)
 
                 time.sleep(settings.page_delay)
 
         return products_in_range
+
+    @staticmethod
+    def _map_product(item: dict) -> Product:
+        """Преобразует элемент ответа API в модель Product.
+
+        Args:
+            item (dict): Элемент массива products из ответа API.
+
+        Returns:
+            Product: Модель товара.
+
+        Raises:
+            ProductMappingError: Если данные товара не удалось преобразовать.
+        """
+        try:
+            return Product.from_api_search_data(item)
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as e:
+            raise ProductMappingError(
+                f"Не удалось преобразовать товар из ответа API: {e}"
+            ) from e
 
     def get_total_pages_from_json(self, json_data: dict) -> int:
         """

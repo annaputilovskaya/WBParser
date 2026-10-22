@@ -1,5 +1,6 @@
 """Юнит-тесты для парсера поисковой выдачи Wildberries."""
 
+import logging
 from unittest.mock import Mock
 
 import pytest
@@ -7,6 +8,7 @@ from pytest_mock import MockerFixture
 from src.config.app_settings import settings
 from src.data_models.product import Product
 from src.parsers.search_parser import SearchParser
+from src.utils.exceptions import ProductMappingError
 
 
 class TestSearchParser:
@@ -220,6 +222,144 @@ class TestSearchParser:
             result = search_parser._process_range("тест", 0, 1000)
 
         assert result == []
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ValueError("Ошибка маппинга"),
+            AttributeError("'str' object has no attribute 'get'"),
+        ],
+        ids=["value_error", "attribute_error"],
+    )
+    def test_process_range_skips_malformed_item(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+        error: Exception,
+    ) -> None:
+        """Проверяет, что некорректный товар пропускается, а остальные собираются."""
+        mocker.patch("time.sleep", return_value=None)
+        mock_api_response_search["total"] = 100
+        mock_api_response_search["products"] = [{"id": 1}, {"id": 2}, {"id": 3}]
+        search_parser.client.search_products.return_value = mock_api_response_search
+
+        def from_api(item: dict) -> Product:
+            if item["id"] == 2:
+                raise error
+            return Product(url="", article=item["id"], name="Т", price=1.0)
+
+        mocker.patch.object(Product, "from_api_search_data", side_effect=from_api)
+
+        result = search_parser._process_range("тест", 0, 1000)
+
+        assert [p.article for p in result] == [1, 3]
+
+    def test_parse_skips_malformed_item(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+    ) -> None:
+        """Проверяет, что parse не падает на некорректном товаре."""
+        mocker.patch("time.sleep", return_value=None)
+        mock_api_response_search["total"] = 100
+        mock_api_response_search["products"] = [{"id": 1}, {"id": 2}]
+        search_parser.base_ranges = [(0, 1000)]
+        search_parser.client.search_products.return_value = mock_api_response_search
+
+        def from_api(item: dict) -> Product:
+            if item["id"] == 2:
+                raise ValueError("Ошибка маппинга")
+            return Product(url="", article=item["id"], name="Т", price=1.0)
+
+        mocker.patch.object(Product, "from_api_search_data", side_effect=from_api)
+
+        result = search_parser.parse(query="тест", enrich=False)
+
+        assert [p.article for p in result] == [1]
+
+    def test_process_range_logs_mapping_error_as_warning(
+        self,
+        search_parser: SearchParser,
+        mock_api_response_search: dict,
+        mocker: MockerFixture,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Проверяет, что ошибка маппинга логируется как предупреждение."""
+        mocker.patch("time.sleep", return_value=None)
+        mock_api_response_search["total"] = 100
+        search_parser.client.search_products.return_value = mock_api_response_search
+        mocker.patch.object(
+            Product,
+            "from_api_search_data",
+            Mock(side_effect=ValueError("Ошибка маппинга")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            result = search_parser._process_range("тест", 0, 1000)
+
+        assert result == []
+        warnings = [
+            rec for rec in caplog.records if "Ошибка маппинга товара" in rec.message
+        ]
+        assert len(warnings) == 1
+        assert warnings[0].levelno == logging.WARNING
+        assert "Ошибка маппинга" in warnings[0].message
+        assert warnings[0].exc_info is None
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            KeyError("id"),
+            IndexError("sizes"),
+            TypeError("Неверный тип данных"),
+            ValueError("Неверное значение"),
+            AttributeError("'str' object has no attribute 'get'"),
+        ],
+        ids=[
+            "key_error",
+            "index_error",
+            "type_error",
+            "value_error",
+            "attribute_error",
+        ],
+    )
+    def test_map_product_wraps_mapping_error(
+        self,
+        search_parser: SearchParser,
+        mocker: MockerFixture,
+        error: Exception,
+    ) -> None:
+        """Проверяет, что ошибка маппинга превращается в ProductMappingError."""
+        mocker.patch.object(Product, "from_api_search_data", side_effect=error)
+
+        with pytest.raises(ProductMappingError) as exc_info:
+            search_parser._map_product({"id": 1})
+
+        assert exc_info.value.__cause__ is error
+
+    def test_map_product_returns_product(
+        self, search_parser: SearchParser, mocker: MockerFixture
+    ) -> None:
+        """Проверяет, что успешный маппинг возвращает модель Product."""
+        product = Product(url="", article=1, name="Т", price=1.0)
+        mocker.patch.object(Product, "from_api_search_data", return_value=product)
+
+        assert search_parser._map_product({"id": 1}) is product
+
+    def test_map_product_does_not_hide_unexpected_error(
+        self,
+        search_parser: SearchParser,
+        mocker: MockerFixture,
+    ) -> None:
+        """Проверяет, что неожиданные ошибки не маскируются доменным исключением."""
+        mocker.patch.object(
+            Product, "from_api_search_data", side_effect=RuntimeError("boom")
+        )
+
+        with pytest.raises(RuntimeError):
+            search_parser._map_product({"id": 1})
 
     def test_max_pages_derived_from_limit_per_request(
         self, search_parser: SearchParser, mocker: MockerFixture

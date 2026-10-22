@@ -118,7 +118,8 @@ class TestProductDetailParserIntegration:
         assert enriched.seller_name == "FashionBrand"
         assert enriched.seller_url == "https://www.wildberries.ru/seller/987654"
         assert enriched.image_count == 5
-        assert enriched.image_urls.startswith("\u200bhttps://")
+        assert enriched.image_urls.startswith("https://")
+        assert "\u200b" not in enriched.image_urls
         assert "wbbasket.ru" in enriched.image_urls
         assert len(enriched.image_urls.split(", ")) == 5
 
