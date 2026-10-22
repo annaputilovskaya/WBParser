@@ -8,12 +8,9 @@ from fake_useragent import UserAgent
 from seleniumbase import Driver
 
 from src.config.app_settings import settings
+from src.utils.exceptions import TokenFetchError
 
 logger = logging.getLogger(__name__)
-
-
-class TokenFetchError(RuntimeError):
-    """Ошибка получения токена авторизации Wildberries через Selenium."""
 
 
 class TokenManager:

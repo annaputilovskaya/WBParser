@@ -10,8 +10,9 @@ import requests
 from fake_useragent import UserAgent
 
 from src.config.app_settings import settings
+from src.utils.exceptions import TokenFetchError
 from src.utils.proxy_pool import ProxyPool
-from src.utils.token_manager import TokenFetchError, TokenManager
+from src.utils.token_manager import TokenManager
 from src.utils.url_service import UrlService
 
 logger = logging.getLogger(__name__)

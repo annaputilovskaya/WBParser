@@ -5,7 +5,8 @@ import time
 import pytest
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
-from src.utils.token_manager import TokenFetchError, TokenManager
+from src.utils.exceptions import TokenFetchError, WbParserError
+from src.utils.token_manager import TokenManager
 
 
 class TestTokenManager:
@@ -102,9 +103,10 @@ class TestTokenManager:
             token_manager.get_token()
         mock_driver.quit.assert_called_once()
 
-    def test_token_fetch_error_is_runtime_error(self) -> None:
-        """TokenFetchError совместим с RuntimeError (обратная совместимость)."""
-        assert issubclass(TokenFetchError, RuntimeError)
+    def test_token_fetch_error_is_domain_error(self) -> None:
+        """TokenFetchError наследует общий базовый класс доменных ошибок."""
+        assert issubclass(TokenFetchError, WbParserError)
+        assert issubclass(WbParserError, Exception)
 
     @pytest.mark.filterwarnings("ignore:Mocks returned by pytest-mock")
     def test_get_token_thread_safety(
@@ -161,7 +163,7 @@ class TestTokenManager:
         mock_driver = mocker.Mock()
         mocker.patch("src.utils.token_manager.Driver", return_value=mock_driver)
         mock_driver.execute_cdp_cmd.return_value = {}
-        with pytest.raises(RuntimeError):
+        with pytest.raises(TokenFetchError):
             token_manager.get_token()
 
     def test_get_token_applies_no_sandbox_when_enabled(

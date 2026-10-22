@@ -1,9 +1,17 @@
 """Доменные исключения проекта."""
 
 
-class BasketConfigError(Exception):
+class WbParserError(Exception):
+    """Базовое исключение для всех доменных ошибок WBParser."""
+
+
+class TokenFetchError(WbParserError):
+    """Не удалось получить токен авторизации Wildberries."""
+
+
+class BasketConfigError(WbParserError):
     """Ошибка получения или разбора конфигурации корзин Wildberries."""
 
 
-class ProductMappingError(Exception):
+class ProductMappingError(WbParserError):
     """Ошибка преобразования данных товара из ответа API."""

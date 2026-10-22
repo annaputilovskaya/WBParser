@@ -9,7 +9,7 @@ from _pytest.logging import LogCaptureFixture
 from pytest_mock import MockerFixture
 from src.config.app_settings import settings
 from src.parsers.api_client import IApiClient, WbApiClient
-from src.utils.token_manager import TokenFetchError
+from src.utils.exceptions import TokenFetchError
 
 
 class TestIApiClient:
